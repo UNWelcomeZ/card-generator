@@ -3,6 +3,7 @@
 
 import { defineConfig } from '#q-app/wrappers'
 import { fileURLToPath } from 'node:url'
+import { VitePluginRadar } from 'vite-plugin-radar'
 
 export default defineConfig((ctx) => {
   return {
@@ -88,14 +89,11 @@ export default defineConfig((ctx) => {
 
         ['vite-plugin-vue-devtools'],
 
-        // [
-        //   'vite-plugin-radar',
-        //   {
-        //     analytics: {
-        //       id: 'G-XXXXX',
-        //     },
-        //   },
-        // ],
+        VitePluginRadar({
+          analytics: {
+            id: 'G-WYRY6WS79W',
+          },
+        }),
       ],
     },
 
