@@ -14,7 +14,7 @@ jobs:
       - name: Install and Build
         run: |
           bun install
-          bun run build
+          bun run build-pwa
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
         with:
