@@ -1,7 +1,7 @@
 import ColorThief from 'colorthief'
 
 export default class Avatar {
-  constructor(layer, CANVAS_SIZE, p5) {
+  constructor(layer, CANVAS_SIZE, p5, size) {
     this.layer = layer
     this.ctx = this.layer.canvas.getContext('2d')
     // Position
@@ -14,7 +14,7 @@ export default class Avatar {
     // Border size
     this.borderSize = 20
     // Size
-    this.size = 1
+    this.size = size
     // Dominant color
     this.color = null
     this.colorPalette = null

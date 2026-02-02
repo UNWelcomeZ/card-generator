@@ -165,7 +165,7 @@ const sketch = async (p) => {
     // 建立頭像圖層
     layers.avatar = p.createGraphics(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
     // 初始化頭像物件
-    avatar = new Avatar(layers.avatar, CANVAS_SIZE, p)
+    avatar = new Avatar(layers.avatar, CANVAS_SIZE, p, appStore.avatarSize / 100)
     avatar.image = p.createImg(DEFAULT_AVATAR_IMAGE, 'Avatar Image')
     avatar.image.hide()
     avatar.image.elt.onload = () => {
