@@ -195,41 +195,45 @@ const avatarInput = useTemplateRef('avatarInput')
 const bus = inject('bus')
 
 const setPenSize = (value) => {
-  if (value < PEN_SIZE_MIN) {
+  const numValue = parseFloat(value) || PEN_SIZE_MIN
+  if (numValue < PEN_SIZE_MIN) {
     appStore.penSize = PEN_SIZE_MIN
-  } else if (value > PEN_SIZE_MAX) {
+  } else if (numValue > PEN_SIZE_MAX) {
     appStore.penSize = PEN_SIZE_MAX
   } else {
-    appStore.penSize = value
+    appStore.penSize = numValue
   }
 }
 const setEraserSize = (value) => {
-  if (value < ERASER_SIZE_MIN) {
+  const numValue = parseFloat(value) || ERASER_SIZE_MIN
+  if (numValue < ERASER_SIZE_MIN) {
     appStore.eraserSize = ERASER_SIZE_MIN
-  } else if (value > ERASER_SIZE_MAX) {
+  } else if (numValue > ERASER_SIZE_MAX) {
     appStore.eraserSize = ERASER_SIZE_MAX
   } else {
-    appStore.eraserSize = value
+    appStore.eraserSize = numValue
   }
 }
 const setAvatarBorderSize = (value) => {
-  if (value < AVATAR_BORDER_SIZE_MIN) {
+  const numValue = parseFloat(value) || AVATAR_BORDER_SIZE_MIN
+  if (numValue < AVATAR_BORDER_SIZE_MIN) {
     appStore.avatarBorderSize = AVATAR_BORDER_SIZE_MIN
-  } else if (value > AVATAR_BORDER_SIZE_MAX) {
+  } else if (numValue > AVATAR_BORDER_SIZE_MAX) {
     appStore.avatarBorderSize = AVATAR_BORDER_SIZE_MAX
   } else {
-    appStore.avatarBorderSize = value
+    appStore.avatarBorderSize = numValue
   }
   bus.emit('setAvatarBorderSize')
 }
 
 const setAvatarSize = (value) => {
-  if (value < AVATAR_SIZE_MIN) {
+  const numValue = parseFloat(value) || AVATAR_SIZE_MIN
+  if (numValue < AVATAR_SIZE_MIN) {
     appStore.avatarSize = AVATAR_SIZE_MIN
-  } else if (value > AVATAR_SIZE_MAX) {
+  } else if (numValue > AVATAR_SIZE_MAX) {
     appStore.avatarSize = AVATAR_SIZE_MAX
   } else {
-    appStore.avatarSize = value
+    appStore.avatarSize = numValue
   }
   bus.emit('setAvatarSize')
 }
