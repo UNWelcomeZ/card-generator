@@ -8,7 +8,7 @@ export const useAppStore = defineStore('app', () => {
   const eraserSize = ref(50)
   const avatarImage = ref(new URL('src/assets/images/default-avatar.png', import.meta.url).href)
   const avatarBorderSize = ref(20)
-  const avatarSize = ref(100)
+  const avatarSize = ref(106)
   const name = ref('KENTO')
 
   return {
