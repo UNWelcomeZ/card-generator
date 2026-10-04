@@ -264,7 +264,14 @@ const sketch = (p) => {
         w: b.maxX - b.minX + STROKE_PADDING * 2,
         h: b.maxY - b.minY + STROKE_PADDING * 2,
       })
+      syncHistory()
     }
+  }
+
+  // 同步復原 / 重做的可用狀態到介面
+  const syncHistory = () => {
+    appStore.canUndo = undo.canUndo
+    appStore.canRedo = undo.canRedo
   }
 
   // *********** 頭像處理 ***********
@@ -294,9 +301,11 @@ const sketch = (p) => {
       if (p.keyIsDown(90)) {
         // Ctrl + Z
         undo.undo()
+        syncHistory()
       } else if (p.keyIsDown(89)) {
         // Ctrl + Y
         undo.redo()
+        syncHistory()
       }
     }
   }
@@ -523,14 +532,17 @@ const sketch = (p) => {
   // 事件監聽處理
   bus.on('undo', () => {
     undo.undo()
+    syncHistory()
   })
   bus.on('redo', () => {
     undo.redo()
+    syncHistory()
   })
   bus.on('clear', () => {
     layers.draw.clear()
     layers.draw.background(0)
     undo.capture()
+    syncHistory()
   })
   bus.on('cropAvatar', () => {
     avatar.load(appStore.avatarImage)

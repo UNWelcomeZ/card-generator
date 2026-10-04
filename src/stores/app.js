@@ -10,6 +10,9 @@ export const useAppStore = defineStore('app', () => {
   const avatarBorderSize = ref(20)
   const avatarSize = ref(106)
   const name = ref('KENTO')
+  // 是否有可以復原 / 重做的步驟
+  const canUndo = ref(false)
+  const canRedo = ref(false)
 
   return {
     tool,
@@ -20,5 +23,7 @@ export const useAppStore = defineStore('app', () => {
     avatarBorderSize,
     avatarSize,
     name,
+    canUndo,
+    canRedo,
   }
 })

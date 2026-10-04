@@ -33,17 +33,15 @@ q-drawer(
           )
       q-separator(spaced)
       q-item(
-        v-for="(item, index) in penActions"
-        :key="index"
         dark
         clickable
         v-ripple
-        @click="item.action"
+        @click="clearAction.action"
       )
         q-item-section(avatar)
-          q-icon(:name="item.icon")
+          q-icon(:name="clearAction.icon")
         q-item-section
-          | {{ item.label }}
+          | {{ clearAction.label }}
     template(v-else-if="appStore.tool === 'eraser'")
       q-item-label(header) {{ $t('tools.eraser.size') }}
       q-item
@@ -69,17 +67,15 @@ q-drawer(
           )
       q-separator(spaced)
       q-item(
-        v-for="(item, index) in penActions"
-        :key="index"
         dark
         clickable
         v-ripple
-        @click="item.action"
+        @click="clearAction.action"
       )
         q-item-section(avatar)
-          q-icon(:name="item.icon")
+          q-icon(:name="clearAction.icon")
         q-item-section
-          | {{ item.label }}
+          | {{ clearAction.label }}
     template(v-else-if="appStore.tool === 'avatar'")
       input.hidden(
         ref="avatarInput"
@@ -188,7 +184,7 @@ const {
   AVATAR_SIZE_MIN,
   DEFAULT_AVATAR,
 } = toolsStore
-const { penActions } = storeToRefs(toolsStore)
+const { clearAction } = storeToRefs(toolsStore)
 
 const avatarInput = useTemplateRef('avatarInput')
 

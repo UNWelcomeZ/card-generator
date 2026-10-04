@@ -1,6 +1,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { defineStore } from 'pinia'
+import { Dialog } from 'quasar'
 import { bus } from 'src/boot/bus'
 
 export const useToolsStore = defineStore('tools', () => {
@@ -33,7 +34,8 @@ export const useToolsStore = defineStore('tools', () => {
     },
   ])
 
-  const penActions = computed(() => [
+  // 復原 / 重做，所有工具都可以使用
+  const historyActions = computed(() => [
     {
       value: 'undo',
       icon: 'mdi-undo',
@@ -46,13 +48,22 @@ export const useToolsStore = defineStore('tools', () => {
       label: t('actions.redo'),
       action: () => bus.emit('redo'),
     },
-    {
-      value: 'clear',
-      icon: 'mdi-delete',
-      label: t('actions.clear'),
-      action: () => bus.emit('clear'),
-    },
   ])
+
+  // 清除繪圖，先確認避免誤觸
+  const clearAction = computed(() => ({
+    value: 'clear',
+    icon: 'mdi-delete-sweep',
+    label: t('actions.clear'),
+    action: () =>
+      Dialog.create({
+        title: t('actions.clearConfirm.title'),
+        message: t('actions.clearConfirm.message'),
+        dark: true,
+        ok: { label: t('actions.clearConfirm.ok'), color: 'negative', flat: true },
+        cancel: { label: t('actions.clearConfirm.cancel'), color: 'grey-4', flat: true },
+      }).onOk(() => bus.emit('clear')),
+  }))
 
   const PEN_SIZE_MIN = 10
   const PEN_SIZE_MAX = 50
@@ -69,7 +80,8 @@ export const useToolsStore = defineStore('tools', () => {
     tools,
     downloadAction,
     actions,
-    penActions,
+    historyActions,
+    clearAction,
     PEN_SIZE_MIN,
     PEN_SIZE_MAX,
     ERASER_SIZE_MIN,

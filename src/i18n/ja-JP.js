@@ -30,6 +30,12 @@ export default {
     undo: '元に戻す',
     redo: 'やり直し',
     clear: 'クリア',
+    clearConfirm: {
+      title: '描画をクリアしますか？',
+      message: '手描きの内容がすべて消去されます。元に戻すで復元できます。',
+      ok: 'クリア',
+      cancel: 'キャンセル',
+    },
     download: 'ダウンロード',
     // 空間有限時使用的短標籤
     downloadShort: '保存',

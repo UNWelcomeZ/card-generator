@@ -30,6 +30,12 @@ export default {
     undo: '復原',
     redo: '重做',
     clear: '清除',
+    clearConfirm: {
+      title: '清除繪圖？',
+      message: '會清除所有手繪內容，之後仍可用復原找回。',
+      ok: '清除',
+      cancel: '取消',
+    },
     download: '下載',
     // 空間有限時使用的短標籤
     downloadShort: '下載',

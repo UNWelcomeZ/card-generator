@@ -26,6 +26,18 @@ q-drawer(
     q-separator(spaced)
     //- Actions
     q-item-label(header) {{ $t('actions.title') }}
+    //- 復原 / 重做，所有工具都可以使用
+    q-item
+      q-btn-group.full-width(flat spread)
+        q-btn(
+          v-for="item in historyActions"
+          :key="item.value"
+          @click="item.action"
+          :icon="item.icon"
+          :label="item.label"
+          :disable="item.value === 'undo' ? !appStore.canUndo : !appStore.canRedo"
+          no-caps
+        )
     //- 主要操作：下載成品
     q-item
       q-btn.full-width(
@@ -77,6 +89,6 @@ import { storeToRefs } from 'pinia'
 
 const appStore = useAppStore()
 const toolsStore = useToolsStore()
-const { tools, downloadAction, actions } = storeToRefs(toolsStore)
+const { tools, downloadAction, actions, historyActions } = storeToRefs(toolsStore)
 const { availableLocales, locale } = useI18n()
 </script>

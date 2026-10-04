@@ -30,6 +30,12 @@ export default {
     undo: 'Undo',
     redo: 'Redo',
     clear: 'Clear',
+    clearConfirm: {
+      title: 'Clear the drawing?',
+      message: 'All hand-drawn strokes will be removed. You can still undo this.',
+      ok: 'Clear',
+      cancel: 'Cancel',
+    },
     download: 'Download',
     // 空間有限時使用的短標籤
     downloadShort: 'Save',

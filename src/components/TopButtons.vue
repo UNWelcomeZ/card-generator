@@ -1,158 +1,173 @@
 <template lang="pug">
-template(v-if="appStore.tool === 'pen'")
-  q-list
-    q-item
-      q-item-section(side)
-        q-icon(
-          name="mdi-circle"
-          size="10px"
-          color="white"
-        )
-      q-item-section
-        q-slider(
-          :model-value="appStore.penSize"
-          :min="PEN_SIZE_MIN"
-          :max="PEN_SIZE_MAX"
-          color="primary"
-          track-color="white"
-          @update:model-value="setPenSize"
-        )
-      q-item-section(side)
-        q-icon(
-          name="mdi-circle"
-          size="20px"
-          color="white"
-        )
-    q-separator
-    q-item.q-pa-none
-      q-item-section(
-        v-for="(item, index) in penActions"
-        :key="index"
-      )
-        q-btn.full-height(
-          @click="item.action"
-          :icon="item.icon"
-        )
-template(v-else-if="appStore.tool === 'eraser'")
-  q-list
-    q-item
-      q-item-section(side)
-        q-icon(
-          name="mdi-circle"
-          size="10px"
-          color="white"
-        )
-      q-item-section
-        q-slider(
-          :model-value="appStore.eraserSize"
-          :min="ERASER_SIZE_MIN"
-          :max="ERASER_SIZE_MAX"
-          color="primary"
-          track-color="white"
-          @update:model-value="setEraserSize"
-        )
-      q-item-section(side)
-        q-icon(
-          name="mdi-circle"
-          size="20px"
-          color="white"
-        )
-    q-separator
-    q-item.q-pa-none
-      q-item-section(
-        v-for="(item, index) in penActions"
-        :key="index"
-      )
-        q-btn.full-height(
-          @click="item.action"
-          :icon="item.icon"
-        )
-template(v-else-if="appStore.tool === 'avatar'")
-  input.hidden(
-    ref="avatarInput"
-    type="file"
-    accept="image/png, image/jpeg"
-    @change="selectAvatar"
-  )
-  .row.justify-center.items-center.full-height.q-px-sm
-    .col-9
+.row.no-wrap.full-height
+  //- 目前工具的選項
+  .col.full-height
+    template(v-if="appStore.tool === 'pen'")
       q-list
         q-item
           q-item-section(side)
             q-icon(
-              name="mdi-border-all-variant"
-              size="20px"
+              name="mdi-circle"
+              size="10px"
               color="white"
             )
           q-item-section
             q-slider(
-              :model-value="appStore.avatarBorderSize"
-              :min="AVATAR_BORDER_SIZE_MIN"
-              :max="AVATAR_BORDER_SIZE_MAX"
+              :model-value="appStore.penSize"
+              :min="PEN_SIZE_MIN"
+              :max="PEN_SIZE_MAX"
               color="primary"
               track-color="white"
-              @update:model-value="setAvatarBorderSize"
+              @update:model-value="setPenSize"
             )
+          q-item-section(side)
+            q-icon(
+              name="mdi-circle"
+              size="20px"
+              color="white"
+            )
+        q-item.q-py-none
+          q-btn(
+            @click="clearAction.action"
+            :icon="clearAction.icon"
+            :label="clearAction.label"
+            flat
+            dense
+            no-caps
+            size="sm"
+          )
+    template(v-else-if="appStore.tool === 'eraser'")
+      q-list
         q-item
           q-item-section(side)
             q-icon(
-              name="mdi-image-size-select-large"
-              size="20px"
+              name="mdi-circle"
+              size="10px"
               color="white"
             )
           q-item-section
             q-slider(
-              :model-value="appStore.avatarSize"
-              :min="AVATAR_SIZE_MIN"
-              :max="AVATAR_SIZE_MAX"
+              :model-value="appStore.eraserSize"
+              :min="ERASER_SIZE_MIN"
+              :max="ERASER_SIZE_MAX"
               color="primary"
               track-color="white"
-              @update:model-value="setAvatarSize"
+              @update:model-value="setEraserSize"
             )
-    .col-3
-      q-img.cursor-pointer(
-        :src="appStore.avatarImage || DEFAULT_AVATAR"
-        fit="contain"
-        height="80px"
+          q-item-section(side)
+            q-icon(
+              name="mdi-circle"
+              size="20px"
+              color="white"
+            )
+        q-item.q-py-none
+          q-btn(
+            @click="clearAction.action"
+            :icon="clearAction.icon"
+            :label="clearAction.label"
+            flat
+            dense
+            no-caps
+            size="sm"
+          )
+    template(v-else-if="appStore.tool === 'avatar'")
+      input.hidden(
+        ref="avatarInput"
+        type="file"
+        accept="image/png, image/jpeg"
+        @change="selectAvatar"
       )
-        q-popup-proxy(:breakpoint="1024")
-          q-card(flat style="width: 300px")
-            q-card-section
-              .text-h6 {{ $t('tools.avatar.select') }}
-            q-card-section
-              q-btn-group(spread flat)
-                q-btn(flat icon="mdi-upload" @click="onAvatarInputClick")
-                q-btn(flat icon="mdi-delete" @click="onAvatarDeleteClick")
-template(v-else-if="appStore.tool === 'bg'")
-  input.hidden(
-    type="color"
-    v-model="appStore.bgColor"
-    @input="bus.emit('setBgColor')"
-    ref="colorInput"
-  )
-  .row.justify-center.items-center.full-height.q-px-sm
-    .col-3.full-height.q-pa-md
-      .full-height.full-width.cursor-pointer(
-        :style="{ backgroundColor: appStore.bgColor }"
-        @click="colorInput.click()"
-      )
-    .col-9
-      q-input(
+      .row.justify-center.items-center.full-height.q-px-sm
+        .col-9
+          q-list
+            q-item
+              q-item-section(side)
+                q-icon(
+                  name="mdi-border-all-variant"
+                  size="20px"
+                  color="white"
+                )
+              q-item-section
+                q-slider(
+                  :model-value="appStore.avatarBorderSize"
+                  :min="AVATAR_BORDER_SIZE_MIN"
+                  :max="AVATAR_BORDER_SIZE_MAX"
+                  color="primary"
+                  track-color="white"
+                  @update:model-value="setAvatarBorderSize"
+                )
+            q-item
+              q-item-section(side)
+                q-icon(
+                  name="mdi-image-size-select-large"
+                  size="20px"
+                  color="white"
+                )
+              q-item-section
+                q-slider(
+                  :model-value="appStore.avatarSize"
+                  :min="AVATAR_SIZE_MIN"
+                  :max="AVATAR_SIZE_MAX"
+                  color="primary"
+                  track-color="white"
+                  @update:model-value="setAvatarSize"
+                )
+        .col-3
+          q-img.cursor-pointer(
+            :src="appStore.avatarImage || DEFAULT_AVATAR"
+            fit="contain"
+            height="80px"
+          )
+            q-popup-proxy(:breakpoint="1024")
+              q-card(flat style="width: 300px")
+                q-card-section
+                  .text-h6 {{ $t('tools.avatar.select') }}
+                q-card-section
+                  q-btn-group(spread flat)
+                    q-btn(flat icon="mdi-upload" @click="onAvatarInputClick")
+                    q-btn(flat icon="mdi-delete" @click="onAvatarDeleteClick")
+    template(v-else-if="appStore.tool === 'bg'")
+      input.hidden(
+        type="color"
         v-model="appStore.bgColor"
-        color="primary"
-        outlined
-        @update:model-value="bus.emit('setBgColor')"
+        @input="bus.emit('setBgColor')"
+        ref="colorInput"
       )
-template(v-else-if="appStore.tool === 'name'")
-  .row.justify-center.items-center.full-height.q-px-sm
-    .col-12
-      q-input(
-        :model-value="appStore.name"
-        :placeholder="$t('tools.name.placeholder')"
-        color="primary"
-        outlined
-        @update:model-value="setName"
-      )
+      .row.justify-center.items-center.full-height.q-px-sm
+        .col-3.full-height.q-pa-md
+          .full-height.full-width.cursor-pointer(
+            :style="{ backgroundColor: appStore.bgColor }"
+            @click="colorInput.click()"
+          )
+        .col-9
+          q-input(
+            v-model="appStore.bgColor"
+            color="primary"
+            outlined
+            @update:model-value="bus.emit('setBgColor')"
+          )
+    template(v-else-if="appStore.tool === 'name'")
+      .row.justify-center.items-center.full-height.q-px-sm
+        .col-12
+          q-input(
+            :model-value="appStore.name"
+            :placeholder="$t('tools.name.placeholder')"
+            color="primary"
+            outlined
+            @update:model-value="setName"
+          )
+  q-separator(vertical dark)
+  //- 復原 / 重做，所有工具都可以使用
+  .column.no-wrap.justify-center
+    q-btn(
+      v-for="item in historyActions"
+      :key="item.value"
+      @click="item.action"
+      :icon="item.icon"
+      :aria-label="item.label"
+      :disable="item.value === 'undo' ? !appStore.canUndo : !appStore.canRedo"
+      flat
+    )
 </template>
 
 <script setup>
@@ -175,7 +190,7 @@ const {
   AVATAR_SIZE_MIN,
   DEFAULT_AVATAR,
 } = toolsStore
-const { penActions } = storeToRefs(toolsStore)
+const { historyActions, clearAction } = storeToRefs(toolsStore)
 
 const avatarInput = useTemplateRef('avatarInput')
 const colorInput = useTemplateRef('colorInput')

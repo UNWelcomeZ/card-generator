@@ -66,6 +66,14 @@ export default class Undo {
     this.current = this.history.length
   }
 
+  get canUndo() {
+    return this.current > 0
+  }
+
+  get canRedo() {
+    return this.current < this.history.length
+  }
+
   undo() {
     if (this.current > 0) {
       this.current--
