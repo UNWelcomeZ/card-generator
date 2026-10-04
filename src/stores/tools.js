@@ -9,9 +9,9 @@ export const useToolsStore = defineStore('tools', () => {
   const tools = computed(() => [
     { value: 'pen', icon: 'mdi-pencil', label: t('tools.pen.title') },
     { value: 'eraser', icon: 'mdi-eraser', label: t('tools.eraser.title') },
-    { value: 'avatar', icon: 'mdi-image', label: t('tools.avatar.title') },
-    { value: 'bg', icon: 'mdi-format-color-fill', label: t('tools.color.title') },
-    { value: 'name', icon: 'mdi-account', label: t('tools.name.title') },
+    { value: 'avatar', icon: 'mdi-account-circle', label: t('tools.avatar.title') },
+    { value: 'bg', icon: 'mdi-palette', label: t('tools.color.title') },
+    { value: 'name', icon: 'mdi-format-text', label: t('tools.name.title') },
   ])
 
   const actions = computed(() => [

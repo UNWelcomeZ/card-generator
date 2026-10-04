@@ -10,7 +10,7 @@ export default {
       size: '消しゴムサイズ',
     },
     avatar: {
-      title: 'アバター画像',
+      title: 'アバター',
       size: 'アバターサイズ',
       borderSize: '枠線サイズ',
       select: 'アバター画像を選択',

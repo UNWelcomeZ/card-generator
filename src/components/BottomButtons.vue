@@ -1,14 +1,18 @@
 <template lang="pug">
 .row.justify-center.items-center.full-height
-  q-btn.col.full-height(
+  q-btn.col.full-height.tool-btn(
     v-for="item in tools"
     :key="item.value"
     @click="appStore.tool = item.value"
     :icon="item.icon"
+    :label="item.label"
     :class="appStore.tool === item.value ? 'bg-primary text-white' : ''"
+    stack
+    no-caps
   )
-  q-btn.col.full-height(
+  q-btn.col.full-height.tool-btn(
     icon="mdi-dots-horizontal"
+    :aria-label="$t('actions.title')"
   )
     q-popup-proxy(:breakpoint="1024")
       q-card(flat style="width: 300px")
@@ -51,4 +55,16 @@ const { tools, actions } = storeToRefs(toolsStore)
 const { availableLocales, locale } = useI18n()
 </script>
 
-<style lang="sass" scoped></style>
+<style lang="sass" scoped>
+.tool-btn
+  min-width: 0
+  padding: 4px 2px
+  font-size: 11px
+  :deep(.q-btn__content)
+    flex-wrap: nowrap
+  :deep(.block)
+    white-space: nowrap
+    overflow: hidden
+    text-overflow: ellipsis
+    max-width: 100%
+</style>
