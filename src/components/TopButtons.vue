@@ -77,8 +77,8 @@
         accept="image/png, image/jpeg"
         @change="selectAvatar"
       )
-      .row.justify-center.items-center.full-height.q-px-sm
-        .col-9
+      .row.no-wrap.items-center.full-height.q-pl-sm
+        .col
           q-list
             q-item
               q-item-section(side)
@@ -112,20 +112,36 @@
                   track-color="white"
                   @update:model-value="setAvatarSize"
                 )
-        .col-3
-          q-img.cursor-pointer(
-            :src="appStore.avatarImage || DEFAULT_AVATAR"
-            fit="contain"
-            height="80px"
+        //- 目前的頭像，點擊即可更換
+        .col-auto.column.items-center.q-px-xs
+          .avatar-thumb
+            q-img.cursor-pointer.rounded-borders(
+              :src="appStore.avatarImage || DEFAULT_AVATAR"
+              :alt="$t('tools.avatar.change')"
+              fit="contain"
+              width="64px"
+              height="50px"
+              @click="onAvatarInputClick"
+            )
+            q-btn.avatar-remove(
+              v-if="hasAvatar"
+              @click="onAvatarDeleteClick"
+              :aria-label="$t('tools.avatar.remove')"
+              icon="mdi-close-circle"
+              round
+              dense
+              flat
+              size="sm"
+            )
+          q-btn(
+            @click="onAvatarInputClick"
+            :label="$t('tools.avatar.change')"
+            icon="mdi-image-edit"
+            flat
+            dense
+            no-caps
+            size="sm"
           )
-            q-popup-proxy(:breakpoint="1024")
-              q-card(flat style="width: 300px")
-                q-card-section
-                  .text-h6 {{ $t('tools.avatar.select') }}
-                q-card-section
-                  q-btn-group(spread flat)
-                    q-btn(flat icon="mdi-upload" @click="onAvatarInputClick")
-                    q-btn(flat icon="mdi-delete" @click="onAvatarDeleteClick")
     template(v-else-if="appStore.tool === 'bg'")
       input.hidden(
         type="color"
@@ -171,7 +187,7 @@
 </template>
 
 <script setup>
-import { useTemplateRef, inject } from 'vue'
+import { useTemplateRef, inject, computed } from 'vue'
 import { useAppStore } from 'stores/app'
 import { useToolsStore } from 'stores/tools'
 import { storeToRefs } from 'pinia'
@@ -249,12 +265,19 @@ const onAvatarDeleteClick = () => {
   appStore.avatarImage = DEFAULT_AVATAR
 }
 const selectAvatar = (event) => {
+  const file = event.target.files[0]
+  // 清空選擇，再次選同一個檔案時才會觸發 change
+  event.target.value = ''
+  if (!file) return
   const reader = new FileReader()
   reader.onload = (e) => {
     bus.emit('selectAvatar', e.target.result)
   }
-  reader.readAsDataURL(event.target.files[0])
+  reader.readAsDataURL(file)
 }
+
+// 是否有使用中的頭像（移除後會顯示預設的佔位圖）
+const hasAvatar = computed(() => appStore.avatarImage && appStore.avatarImage !== DEFAULT_AVATAR)
 
 const setName = (value) => {
   appStore.name = value.trim().toUpperCase()
@@ -262,4 +285,12 @@ const setName = (value) => {
 }
 </script>
 
-<style lang="sass" scoped></style>
+<style lang="sass" scoped>
+.avatar-thumb
+  position: relative
+.avatar-remove
+  position: absolute
+  top: -8px
+  right: -8px
+  background: #1d1d1d
+</style>

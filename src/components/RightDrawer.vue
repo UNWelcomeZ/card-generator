@@ -85,16 +85,30 @@ q-drawer(
       )
       q-item-label(header) {{ $t('tools.avatar.select') }}
       q-item
-        q-img.full-width(
+        q-img.full-width.cursor-pointer(
           :src="appStore.avatarImage || DEFAULT_AVATAR"
+          :alt="$t('tools.avatar.change')"
           height="150px"
           fit="contain"
+          @click="onAvatarInputClick"
         )
       q-item
         q-item-section
-          q-btn(flat icon="mdi-upload" @click="onAvatarInputClick")
+          q-btn(
+            @click="onAvatarInputClick"
+            :label="$t('tools.avatar.change')"
+            icon="mdi-image-edit"
+            flat
+            no-caps
+          )
         q-item-section
-          q-btn(flat icon="mdi-delete" @click="onAvatarDeleteClick")
+          q-btn(
+            @click="onAvatarDeleteClick"
+            :label="$t('tools.avatar.removeShort')"
+            icon="mdi-delete"
+            flat
+            no-caps
+          )
       q-separator(spaced)
       q-item-label(header) {{ $t('tools.avatar.borderSize') }}
       q-item
@@ -242,11 +256,15 @@ const onAvatarDeleteClick = () => {
   appStore.avatarImage = DEFAULT_AVATAR
 }
 const selectAvatar = (event) => {
+  const file = event.target.files[0]
+  // 清空選擇，再次選同一個檔案時才會觸發 change
+  event.target.value = ''
+  if (!file) return
   const reader = new FileReader()
   reader.onload = (e) => {
     bus.emit('selectAvatar', e.target.result)
   }
-  reader.readAsDataURL(event.target.files[0])
+  reader.readAsDataURL(file)
 }
 
 const setName = (value) => {

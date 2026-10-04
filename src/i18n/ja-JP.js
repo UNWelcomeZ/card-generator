@@ -15,6 +15,9 @@ export default {
       borderSize: '枠線サイズ',
       select: 'アバター画像を選択',
       remove: 'アバターを削除',
+      change: '変更',
+      removeShort: '削除',
+      dragHint: 'キャンバス上のアバターをドラッグして移動できます',
     },
     color: {
       title: 'テーマ色',

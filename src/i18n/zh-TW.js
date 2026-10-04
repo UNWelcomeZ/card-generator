@@ -15,6 +15,9 @@ export default {
       borderSize: '邊框大小',
       select: '選擇角色圖片',
       remove: '移除角色',
+      change: '更換',
+      removeShort: '移除',
+      dragHint: '在畫布上拖曳角色即可移動位置',
     },
     color: {
       title: '顏色',

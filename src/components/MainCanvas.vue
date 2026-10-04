@@ -8,6 +8,8 @@ import { useTemplateRef, onMounted, computed, watch, nextTick, inject } from 'vu
 import { useAppStore } from 'src/stores/app'
 import { useToolsStore } from 'src/stores/tools'
 import { useElementSize } from '@vueuse/core'
+import { useI18n } from 'vue-i18n'
+import { Notify } from 'quasar'
 import Undo from 'src/class/undo'
 import Avatar from 'src/class/avatar'
 import Brush from 'src/class/brush'
@@ -88,10 +90,34 @@ const stackStyle = computed(() => ({
 // 顯示尺寸變化時，更新頭像的顯示位置
 watch(displaySize, () => p5Instance?.updateDisplay?.(), { deep: true })
 
+// *********** 提示 ***********
+const { t } = useI18n()
+const AVATAR_HINT_KEY = 'hint.avatarDrag'
+
+// 第一次切換到頭像工具時，提示可以直接拖曳
+const showAvatarHint = () => {
+  try {
+    if (localStorage.getItem(AVATAR_HINT_KEY)) return
+    localStorage.setItem(AVATAR_HINT_KEY, '1')
+  } catch {
+    // 無法使用 localStorage 時每次都提示
+  }
+  Notify.create({
+    message: t('tools.avatar.dragHint'),
+    icon: 'mdi-gesture-tap-hold',
+    color: 'dark',
+    position: 'center',
+    timeout: 2500,
+  })
+}
+
 // 切換工具時更新游標
 watch(
   () => appStore.tool,
-  () => p5Instance?.setToolCursor?.(),
+  (tool) => {
+    p5Instance?.setToolCursor?.()
+    if (tool === 'avatar') showAvatarHint()
+  },
 )
 
 // *********** Canvas & p5 ***********

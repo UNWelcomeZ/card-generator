@@ -15,6 +15,9 @@ export default {
       borderSize: 'Border Size',
       select: 'Select Avatar Image',
       remove: 'Remove Avatar',
+      change: 'Change',
+      removeShort: 'Remove',
+      dragHint: 'Drag the avatar on the canvas to move it',
     },
     color: {
       title: 'Color',
