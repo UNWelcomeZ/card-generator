@@ -10,9 +10,6 @@ import { useToolsStore } from 'src/stores/tools'
 import { useElementSize } from '@vueuse/core'
 import Undo from 'src/class/undo'
 import Avatar from 'src/class/avatar'
-import P5 from 'p5'
-import * as brush from 'p5.brush'
-import JSZip from 'jszip'
 
 // *********** Constants ***********
 const FONT_URL = new URL('src/assets/fonts/SedgwickAveDisplay-Regular.ttf', import.meta.url).href
@@ -97,6 +94,8 @@ watch(
 // *********** Canvas & p5 ***********
 let p5Instance = null
 let undo = null
+// p5.brush 模組，與 p5 一起延後載入
+let brush = null
 
 const sketch = (p) => {
   // 圖層
@@ -632,6 +631,7 @@ const sketch = (p) => {
     downloadBlob(await toBlob(composeLayers()), 'result.png')
   })
   bus.on('downloadLayer', async () => {
+    const { default: JSZip } = await import('jszip')
     const zip = new JSZip()
     const [bg, draw, avatarLayer, text] = await Promise.all([
       toBlob(canvas.elt),
@@ -648,6 +648,9 @@ const sketch = (p) => {
 }
 
 onMounted(async () => {
+  // p5 與 p5.brush 體積較大，延後載入讓介面先顯示
+  const [{ default: P5 }, brushModule] = await Promise.all([import('p5'), import('p5.brush')])
+  brush = brushModule
   await nextTick()
   P5.disableFriendlyErrors = true
   p5Instance = new P5(sketch)
