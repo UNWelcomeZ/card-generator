@@ -29,6 +29,8 @@ const CANVAS_SIZE = {
   PADDING: 50,
 }
 const MAX_UNDO = 20
+// 名字最大字級
+const NAME_FONT_SIZE_MAX = 300
 
 // *********** Store & Event ***********
 const appStore = useAppStore()
@@ -459,14 +461,19 @@ const sketch = async (p) => {
     layers.text.fill(appStore.bgColor)
     const ctx = layers.text.canvas.getContext('2d')
     ctx.textBaseline = 'middle'
-    let size = 300
     const range = CANVAS_SIZE.WIDTH - 20
-    layers.text.textFont(font, size)
-    let textWidth = ctx.measureText(appStore.name).width
-    while (textWidth > range && size > 1) {
-      size -= 0.5
+    const measure = (size) => {
       layers.text.textFont(font, size)
-      textWidth = ctx.measureText(appStore.name).width
+      return ctx.measureText(appStore.name).width
+    }
+    // 文字寬度與字級成正比，先依比例算出字級，再以 0.5 為單位微調
+    let size = NAME_FONT_SIZE_MAX
+    const maxWidth = measure(size)
+    if (maxWidth > range) {
+      size = Math.floor(((NAME_FONT_SIZE_MAX * range) / maxWidth) * 2) / 2
+      while (measure(size) > range && size > 1) {
+        size -= 0.5
+      }
     }
     layers.text.text(appStore.name, 80, 1390 - CANVAS_SIZE.HEIGHT / 2)
     layers.text.blendMode(p.MULTIPLY)
