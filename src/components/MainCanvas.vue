@@ -34,8 +34,6 @@ const MAX_UNDO = 20
 const MIN_STROKE_DISTANCE = 1.5
 // 復原範圍額外保留的邊界，涵蓋抗鋸齒的半透明像素
 const STROKE_PADDING = 2
-// 筆刷粗細設定值 → 筆刷直徑（畫布像素）
-const BRUSH_SIZE_RATIO = 0.6
 // 名字最大字級
 const NAME_FONT_SIZE_MAX = 300
 // 調整頭像時，預覽用的描邊取樣數
@@ -251,7 +249,7 @@ const sketch = (p) => {
 
     const isPen = appStore.tool === 'pen'
     const size = isPen ? appStore.penSize : appStore.eraserSize
-    brush.begin(stroke.last.x, stroke.last.y, size * BRUSH_SIZE_RATIO, isPen ? 'white' : 'black')
+    brush.begin(stroke.last.x, stroke.last.y, size, isPen ? 'white' : 'black')
 
     // 手指移出畫布也能繼續追蹤這一筆
     try {

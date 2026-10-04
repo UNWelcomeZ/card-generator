@@ -18,6 +18,8 @@
               :max="PEN_SIZE_MAX"
               color="primary"
               track-color="white"
+              label
+              :label-value="`${appStore.penSize} px`"
               @update:model-value="setPenSize"
             )
           q-item-section(side)
@@ -52,6 +54,8 @@
               :max="ERASER_SIZE_MAX"
               color="primary"
               track-color="white"
+              label
+              :label-value="`${appStore.eraserSize} px`"
               @update:model-value="setEraserSize"
             )
           q-item-section(side)

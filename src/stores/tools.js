@@ -65,10 +65,11 @@ export const useToolsStore = defineStore('tools', () => {
       }).onOk(() => bus.emit('clear')),
   }))
 
-  const PEN_SIZE_MIN = 10
-  const PEN_SIZE_MAX = 50
-  const ERASER_SIZE_MIN = 10
-  const ERASER_SIZE_MAX = 50
+  // 筆刷與橡皮擦大小即為筆刷直徑（畫布像素）
+  const PEN_SIZE_MIN = 6
+  const PEN_SIZE_MAX = 30
+  const ERASER_SIZE_MIN = 6
+  const ERASER_SIZE_MAX = 30
   const AVATAR_BORDER_SIZE_MIN = 1
   const AVATAR_BORDER_SIZE_MAX = 50
   const AVATAR_SIZE_MIN = 10

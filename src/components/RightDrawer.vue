@@ -18,12 +18,15 @@ q-drawer(
             :max="PEN_SIZE_MAX"
             color="primary"
             track-color="white"
+            label
+            :label-value="`${appStore.penSize} px`"
             @update:model-value="setPenSize"
           )
       q-item
         q-item-section
           q-input(
             :model-value="appStore.penSize"
+            suffix="px"
             type="number"
             :min="PEN_SIZE_MIN"
             :max="PEN_SIZE_MAX"
@@ -52,12 +55,15 @@ q-drawer(
             :max="ERASER_SIZE_MAX"
             color="primary"
             track-color="white"
+            label
+            :label-value="`${appStore.eraserSize} px`"
             @update:model-value="setEraserSize"
           )
       q-item
         q-item-section
           q-input(
             :model-value="appStore.eraserSize"
+            suffix="px"
             type="number"
             :min="ERASER_SIZE_MIN"
             :max="ERASER_SIZE_MAX"
