@@ -31,6 +31,8 @@ export default {
     redo: '重做',
     clear: '清除',
     download: '下載',
+    // 空間有限時使用的短標籤
+    downloadShort: '下載',
     downloadLayer: '下載 (圖層)',
   },
   settings: {

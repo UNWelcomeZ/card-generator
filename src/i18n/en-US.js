@@ -31,6 +31,8 @@ export default {
     redo: 'Redo',
     clear: 'Clear',
     download: 'Download',
+    // 空間有限時使用的短標籤
+    downloadShort: 'Save',
     downloadLayer: 'Download (Layers)',
   },
   settings: {

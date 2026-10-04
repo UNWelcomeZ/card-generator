@@ -26,6 +26,16 @@ q-drawer(
     q-separator(spaced)
     //- Actions
     q-item-label(header) {{ $t('actions.title') }}
+    //- 主要操作：下載成品
+    q-item
+      q-btn.full-width(
+        @click="downloadAction.action"
+        :icon="downloadAction.icon"
+        :label="downloadAction.label"
+        color="primary"
+        unelevated
+        no-caps
+      )
     q-item(
       v-for="(item, index) in actions"
       :key="index"
@@ -67,6 +77,6 @@ import { storeToRefs } from 'pinia'
 
 const appStore = useAppStore()
 const toolsStore = useToolsStore()
-const { tools, actions } = storeToRefs(toolsStore)
+const { tools, downloadAction, actions } = storeToRefs(toolsStore)
 const { availableLocales, locale } = useI18n()
 </script>

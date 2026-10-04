@@ -10,8 +10,17 @@
     stack
     no-caps
   )
-  q-btn.col.full-height.tool-btn(
-    icon="mdi-dots-horizontal"
+  q-separator(vertical dark inset)
+  //- 主要操作：下載成品
+  q-btn.col.full-height.tool-btn.text-primary(
+    @click="downloadAction.action"
+    :icon="downloadAction.icon"
+    :label="downloadAction.shortLabel"
+    stack
+    no-caps
+  )
+  q-btn.col-auto.full-height.tool-btn.more-btn(
+    icon="mdi-dots-vertical"
     :aria-label="$t('actions.title')"
   )
     q-popup-proxy(:breakpoint="1024")
@@ -50,7 +59,7 @@ import { useI18n } from 'vue-i18n'
 const appStore = useAppStore()
 
 const toolsStore = useToolsStore()
-const { tools, actions } = storeToRefs(toolsStore)
+const { tools, downloadAction, actions } = storeToRefs(toolsStore)
 
 const { availableLocales, locale } = useI18n()
 </script>
@@ -67,4 +76,6 @@ const { availableLocales, locale } = useI18n()
     overflow: hidden
     text-overflow: ellipsis
     max-width: 100%
+.more-btn
+  width: 36px
 </style>

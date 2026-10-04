@@ -31,6 +31,8 @@ export default {
     redo: 'やり直し',
     clear: 'クリア',
     download: 'ダウンロード',
+    // 空間有限時使用的短標籤
+    downloadShort: '保存',
     downloadLayer: 'レイヤ分けダウンロード',
   },
   settings: {

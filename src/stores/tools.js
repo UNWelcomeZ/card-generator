@@ -14,13 +14,17 @@ export const useToolsStore = defineStore('tools', () => {
     { value: 'name', icon: 'mdi-format-text', label: t('tools.name.title') },
   ])
 
+  // 主要操作：下載成品
+  const downloadAction = computed(() => ({
+    value: 'download',
+    icon: 'mdi-download',
+    label: t('actions.download'),
+    shortLabel: t('actions.downloadShort'),
+    action: () => bus.emit('download'),
+  }))
+
+  // 次要操作
   const actions = computed(() => [
-    {
-      value: 'download',
-      icon: 'mdi-download',
-      label: t('actions.download'),
-      action: () => bus.emit('download'),
-    },
     {
       value: 'downloadLayer',
       icon: 'mdi-download-multiple',
@@ -63,6 +67,7 @@ export const useToolsStore = defineStore('tools', () => {
 
   return {
     tools,
+    downloadAction,
     actions,
     penActions,
     PEN_SIZE_MIN,
