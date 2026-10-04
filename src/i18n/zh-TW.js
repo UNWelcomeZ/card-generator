@@ -43,6 +43,13 @@ export default {
     // 空間有限時使用的短標籤
     downloadShort: '下載',
     downloadLayer: '下載 (圖層)',
+    reset: '重新開始',
+    resetConfirm: {
+      title: '重新開始？',
+      message: '會清除目前的作品並恢復成預設內容，這個動作無法復原。',
+      ok: '重新開始',
+      cancel: '取消',
+    },
   },
   settings: {
     title: '設定',

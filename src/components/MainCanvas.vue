@@ -13,6 +13,7 @@ import { Notify, Platform } from 'quasar'
 import Undo from 'src/class/undo'
 import Avatar from 'src/class/avatar'
 import Brush from 'src/class/brush'
+import { loadState, saveState, clearState } from 'src/class/autosave'
 
 // *********** Constants ***********
 const FONT_URL = new URL('src/assets/fonts/SedgwickAveDisplay-Regular.ttf', import.meta.url).href
@@ -51,6 +52,7 @@ const {
   ERASER_SIZE_MAX,
   AVATAR_SIZE_MAX,
   AVATAR_SIZE_MIN,
+  DEFAULT_AVATAR,
 } = toolsStore
 const bus = inject('bus')
 
@@ -121,6 +123,57 @@ watch(
 
 // 筆刷大小變化時更新游標預覽
 watch([() => appStore.penSize, () => appStore.eraserSize], () => p5Instance?.updateBrushCursor?.())
+
+// *********** 自動儲存 ***********
+// 停止操作多久後儲存（毫秒）
+const SAVE_DELAY = 1000
+// 還原的手繪內容與頭像位置，在 p5 setup 時套用
+let savedDraw = null
+let savedAvatarPosition = null
+
+// 預設圖片的網址每次部署都會改變，只儲存使用者裁切的圖片
+const serializeAvatarImage = (image) => {
+  if (image.startsWith('data:')) return image
+  return image === DEFAULT_AVATAR ? 'none' : 'default'
+}
+const deserializeAvatarImage = (value) => {
+  if (value === 'none') return DEFAULT_AVATAR
+  return value === 'default' ? DEFAULT_AVATAR_IMAGE : value
+}
+
+const restoreState = async (saved) => {
+  const { settings } = saved
+  appStore.bgColor = settings.bgColor
+  appStore.name = settings.name
+  appStore.penSize = settings.penSize
+  appStore.eraserSize = settings.eraserSize
+  appStore.avatarSize = settings.avatarSize
+  appStore.avatarBorderSize = settings.avatarBorderSize
+  appStore.avatarImage = deserializeAvatarImage(settings.avatarImage)
+  savedAvatarPosition = saved.avatarPosition
+  if (saved.draw) {
+    savedDraw = await createImageBitmap(saved.draw).catch(() => null)
+  }
+}
+
+// 設定變更後自動儲存
+watch(
+  () => [
+    appStore.bgColor,
+    appStore.name,
+    appStore.penSize,
+    appStore.eraserSize,
+    appStore.avatarSize,
+    appStore.avatarBorderSize,
+    appStore.avatarImage,
+  ],
+  () => p5Instance?.scheduleSave?.(),
+)
+
+// 頁面切到背景時立即儲存，手機上頁面可能隨時被系統回收
+const onVisibilityChange = () => {
+  if (document.visibilityState === 'hidden') p5Instance?.flushSave?.()
+}
 
 // *********** Canvas & p5 ***********
 let p5Instance = null
@@ -213,15 +266,26 @@ const sketch = (p) => {
 
     // *********** 頭像圖層 ***********
     avatar = new Avatar(CANVAS_SIZE, appStore.avatarSize / 100, appStore.avatarBorderSize)
+    if (savedAvatarPosition) {
+      avatar.x = savedAvatarPosition.x
+      avatar.y = savedAvatarPosition.y
+    }
     canvasStack.value.appendChild(avatar.canvas)
     updateDisplay()
-    avatar.load(DEFAULT_AVATAR_IMAGE)
+    // 頭像被移除時會是預設的佔位圖
+    if (appStore.avatarImage !== DEFAULT_AVATAR) {
+      avatar.load(appStore.avatarImage)
+    }
 
     // *********** 繪圖圖層 ***********
     // 建立繪圖圖層
     layers.draw = p.createGraphics(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
     layers.draw.background(0)
-    layers.draw.image(imgDefaultDraw, 0, 0, CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
+    if (savedDraw) {
+      layers.draw.drawingContext.drawImage(savedDraw, 0, 0)
+    } else {
+      layers.draw.image(imgDefaultDraw, 0, 0, CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
+    }
     // 初始化繪圖筆刷
     brush = new Brush(layers.draw.drawingContext)
     mountLayer(layers.draw, 'layer-draw')
@@ -338,6 +402,44 @@ const sketch = (p) => {
   const syncHistory = () => {
     appStore.canUndo = undo.canUndo
     appStore.canRedo = undo.canRedo
+    scheduleSave()
+  }
+
+  // *********** 自動儲存 ***********
+  let saveTimer = null
+  // 重新開始時停止儲存，避免把舊作品寫回去
+  let resetting = false
+
+  const save = async () => {
+    clearTimeout(saveTimer)
+    saveTimer = null
+    if (resetting) return
+    const draw = await toBlob(layers.draw.elt)
+    if (resetting) return
+    await saveState({
+      settings: {
+        bgColor: appStore.bgColor,
+        name: appStore.name,
+        penSize: appStore.penSize,
+        eraserSize: appStore.eraserSize,
+        avatarSize: appStore.avatarSize,
+        avatarBorderSize: appStore.avatarBorderSize,
+        avatarImage: serializeAvatarImage(appStore.avatarImage),
+      },
+      avatarPosition: { x: avatar.x, y: avatar.y },
+      draw,
+    })
+  }
+
+  const scheduleSave = () => {
+    if (resetting) return
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(save, SAVE_DELAY)
+  }
+  p.scheduleSave = scheduleSave
+  // 有尚未儲存的變更時立即儲存
+  p.flushSave = () => {
+    if (saveTimer) save()
   }
 
   // *********** 頭像處理 ***********
@@ -390,6 +492,7 @@ const sketch = (p) => {
   }
 
   p.mouseReleased = () => {
+    if (avatar.dragging) scheduleSave()
     avatar.dragging = false
   }
 
@@ -452,6 +555,7 @@ const sketch = (p) => {
   }
 
   p.touchEnded = () => {
+    if (avatar.dragging) scheduleSave()
     avatar.dragging = false
     mouseIn = false
   }
@@ -666,11 +770,19 @@ const sketch = (p) => {
     zip.file('text.png', text)
     downloadBlob(await zip.generateAsync({ type: 'blob' }), 'layers.zip')
   })
+  bus.on('reset', async () => {
+    resetting = true
+    clearTimeout(saveTimer)
+    await clearState()
+    location.reload()
+  })
 }
 
 onMounted(async () => {
-  // p5 體積較大，延後載入讓介面先顯示
-  const { default: P5 } = await import('p5')
+  // p5 體積較大，延後載入讓介面先顯示；同時讀取自動儲存的作品
+  const [{ default: P5 }, saved] = await Promise.all([import('p5'), loadState()])
+  if (saved) await restoreState(saved)
+  document.addEventListener('visibilitychange', onVisibilityChange)
   await nextTick()
   P5.disableFriendlyErrors = true
   p5Instance = new P5(sketch)

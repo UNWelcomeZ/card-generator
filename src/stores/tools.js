@@ -32,6 +32,19 @@ export const useToolsStore = defineStore('tools', () => {
       label: t('actions.downloadLayer'),
       action: () => bus.emit('downloadLayer'),
     },
+    {
+      value: 'reset',
+      icon: 'mdi-restart',
+      label: t('actions.reset'),
+      action: () =>
+        Dialog.create({
+          title: t('actions.resetConfirm.title'),
+          message: t('actions.resetConfirm.message'),
+          dark: true,
+          ok: { label: t('actions.resetConfirm.ok'), color: 'negative', flat: true },
+          cancel: { label: t('actions.resetConfirm.cancel'), color: 'grey-4', flat: true },
+        }).onOk(() => bus.emit('reset')),
+    },
   ])
 
   // 復原 / 重做，所有工具都可以使用

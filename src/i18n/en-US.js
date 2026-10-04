@@ -43,6 +43,14 @@ export default {
     // 空間有限時使用的短標籤
     downloadShort: 'Save',
     downloadLayer: 'Download (Layers)',
+    reset: 'Start Over',
+    resetConfirm: {
+      title: 'Start over?',
+      message:
+        'Your current work will be erased and the card will be reset to its defaults. This cannot be undone.',
+      ok: 'Start Over',
+      cancel: 'Cancel',
+    },
   },
   settings: {
     title: 'Settings',

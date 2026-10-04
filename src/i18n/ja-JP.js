@@ -43,6 +43,13 @@ export default {
     // 空間有限時使用的短標籤
     downloadShort: '保存',
     downloadLayer: 'レイヤ分けダウンロード',
+    reset: '最初からやり直す',
+    resetConfirm: {
+      title: '最初からやり直しますか？',
+      message: '現在の作品を消去して初期状態に戻します。この操作は元に戻せません。',
+      ok: 'やり直す',
+      cancel: 'キャンセル',
+    },
   },
   settings: {
     title: '設定',
