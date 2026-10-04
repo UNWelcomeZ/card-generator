@@ -114,9 +114,13 @@ watch(
   () => appStore.tool,
   (tool) => {
     p5Instance?.setToolCursor?.()
+    p5Instance?.updateBrushCursor?.()
     if (tool === 'avatar') showAvatarHint()
   },
 )
+
+// 筆刷大小變化時更新游標預覽
+watch([() => appStore.penSize, () => appStore.eraserSize], () => p5Instance?.updateBrushCursor?.())
 
 // *********** Canvas & p5 ***********
 let p5Instance = null
@@ -146,6 +150,10 @@ const sketch = (p) => {
   let avatar = null
   // 繪圖筆刷
   let brush = null
+  // 滑鼠游標的筆刷大小預覽
+  let brushCursor = null
+  // 滑鼠在畫布上的位置（顯示座標），不在畫布上或使用觸控時為 null
+  let cursorPosition = null
   // 頭像完整品質重建的計時器
   let avatarCommitTimer = null
   // 滑鼠是否在畫布內
@@ -200,6 +208,8 @@ const sketch = (p) => {
     canvas.elt.addEventListener('pointermove', onPointerMove)
     canvas.elt.addEventListener('pointerup', onPointerUp)
     canvas.elt.addEventListener('pointercancel', onPointerUp)
+    canvas.elt.addEventListener('pointermove', onCursorMove)
+    canvas.elt.addEventListener('pointerleave', onCursorLeave)
 
     // *********** 頭像圖層 ***********
     avatar = new Avatar(CANVAS_SIZE, appStore.avatarSize / 100, appStore.avatarBorderSize)
@@ -223,6 +233,11 @@ const sketch = (p) => {
     layers.text = p.createGraphics(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
     layers.text.textAlign(p.CENTER, p.CENTER)
     mountLayer(layers.text, 'layer-text')
+
+    // *********** 筆刷游標 ***********
+    brushCursor = document.createElement('div')
+    brushCursor.className = 'brush-cursor'
+    canvasStack.value.appendChild(brushCursor)
 
     // 初始繪圖
     setCursor()
@@ -290,6 +305,33 @@ const sketch = (p) => {
       })
       syncHistory()
     }
+  }
+
+  // *********** 筆刷游標 ***********
+  // 使用滑鼠時，以和筆刷相同大小的圓圈當作游標
+  const updateBrushCursor = () => {
+    if (!brushCursor) return
+    const tool = appStore.tool
+    const visible = cursorPosition && (tool === 'pen' || tool === 'eraser')
+    brushCursor.style.display = visible ? 'block' : 'none'
+    if (!visible) return
+
+    const size = tool === 'pen' ? appStore.penSize : appStore.eraserSize
+    const diameter = Math.max(4, (size * displaySize.value.width) / CANVAS_SIZE.WIDTH)
+    brushCursor.style.width = `${diameter}px`
+    brushCursor.style.height = `${diameter}px`
+    brushCursor.style.transform = `translate(${cursorPosition.x - diameter / 2}px, ${cursorPosition.y - diameter / 2}px)`
+  }
+  p.updateBrushCursor = updateBrushCursor
+
+  const onCursorMove = (e) => {
+    cursorPosition = e.pointerType === 'mouse' ? { x: e.offsetX, y: e.offsetY } : null
+    updateBrushCursor()
+  }
+
+  const onCursorLeave = () => {
+    cursorPosition = null
+    updateBrushCursor()
   }
 
   // 同步復原 / 重做的可用狀態到介面
@@ -436,6 +478,7 @@ const sketch = (p) => {
   // p5 還在 preload 時頭像尚未建立，setup 會再呼叫一次
   const updateDisplay = () => {
     avatar?.setDisplayScale(displaySize.value.width / CANVAS_SIZE.WIDTH)
+    updateBrushCursor()
   }
   p.updateDisplay = updateDisplay
 
@@ -500,10 +543,9 @@ const sketch = (p) => {
   }
 
   const setCursor = () => {
-    if (appStore.tool === 'pen') {
-      p.cursor('crosshair')
-    } else if (appStore.tool === 'eraser') {
-      p.cursor('crosshair')
+    if (appStore.tool === 'pen' || appStore.tool === 'eraser') {
+      // 由筆刷大小的圓圈取代
+      p.cursor('none')
     } else if (appStore.tool === 'avatar') {
       p.cursor('move')
     } else {
@@ -670,4 +712,15 @@ onMounted(async () => {
     will-change: transform;
   :deep(.layer-draw)
     mix-blend-mode: lighten;
+  // 筆刷大小預覽，白框加深色外框在任何背景上都看得到
+  :deep(.brush-cursor)
+    display: none;
+    position: absolute;
+    left: 0;
+    top: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+    will-change: transform;
 </style>
