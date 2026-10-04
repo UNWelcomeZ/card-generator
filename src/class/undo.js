@@ -1,5 +1,7 @@
 // 復原 / 重作
-// 每筆紀錄只存被修改的範圍，復原與重作時把該範圍的像素互換
+// 紀錄分兩種：
+// - 繪圖：只存被修改的範圍，復原與重作時把該範圍的像素互換
+// - 狀態：存變更前後的值，復原與重作時以對應的值呼叫 apply
 export default class Undo {
   constructor(amount = 10, canvas) {
     this.amount = amount
@@ -15,8 +17,9 @@ export default class Undo {
     this.mirrorCtx = this.mirror.getContext('2d')
     this.mirrorCtx.drawImage(canvas, 0, 0)
 
-    // 紀錄 { x, y, w, h, image }
-    // current 之前的 image 是變更前的像素，之後的是變更後的像素
+    // 繪圖紀錄 { x, y, w, h, image }
+    //   current 之前的 image 是變更前的像素，之後的是變更後的像素
+    // 狀態紀錄 { before, after, apply }
     this.history = []
     this.current = 0
   }
@@ -36,12 +39,28 @@ export default class Undo {
     ctx.drawImage(image, x, y)
   }
 
-  // 釋放紀錄的 canvas 記憶體
+  // 釋放繪圖紀錄的 canvas 記憶體
   release(entries) {
     for (const entry of entries) {
+      if (!entry.image) continue
       entry.image.width = 0
       entry.image.height = 0
     }
+  }
+
+  // 加入一筆紀錄，並丟棄目前位置之後的重作紀錄
+  push(entry) {
+    this.release(this.history.splice(this.current))
+    this.history.push(entry)
+    if (this.history.length > this.amount) {
+      this.release(this.history.splice(0, 1))
+    }
+    this.current = this.history.length
+  }
+
+  // 記錄狀態變更
+  captureState(before, after, apply) {
+    this.push({ before, after, apply })
   }
 
   // 記錄圖層變更，rect 為變更範圍，省略時為整張圖層
@@ -57,13 +76,7 @@ export default class Undo {
     this.mirrorCtx.clearRect(x, y, w, h)
     this.mirrorCtx.drawImage(this.canvas, x, y, w, h, x, y, w, h)
 
-    // 丟棄目前位置之後的重作紀錄
-    this.release(this.history.splice(this.current))
-    this.history.push({ ...region, image: before })
-    if (this.history.length > this.amount) {
-      this.release(this.history.splice(0, 1))
-    }
-    this.current = this.history.length
+    this.push({ ...region, image: before })
   }
 
   get canUndo() {
@@ -77,13 +90,23 @@ export default class Undo {
   undo() {
     if (this.current > 0) {
       this.current--
-      this.swap(this.history[this.current])
+      const entry = this.history[this.current]
+      if (entry.apply) {
+        entry.apply(entry.before)
+      } else {
+        this.swap(entry)
+      }
     }
   }
 
   redo() {
     if (this.current < this.history.length) {
-      this.swap(this.history[this.current])
+      const entry = this.history[this.current]
+      if (entry.apply) {
+        entry.apply(entry.after)
+      } else {
+        this.swap(entry)
+      }
       this.current++
     }
   }

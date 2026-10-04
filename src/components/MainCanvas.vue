@@ -41,6 +41,9 @@ const NAME_FONT_SIZE_MAX = 300
 const AVATAR_PREVIEW_SAMPLES = 12
 // 停止調整頭像多久後重建完整品質的邊框（毫秒）
 const AVATAR_COMMIT_DELAY = 200
+// 停止調整多久後把背景色與名字的變更加入復原紀錄（毫秒）
+const BG_COMMIT_DELAY = 500
+const NAME_COMMIT_DELAY = 800
 
 // *********** Store & Event ***********
 const appStore = useAppStore()
@@ -307,6 +310,7 @@ const sketch = (p) => {
     setCursor()
     drawBg()
     drawText()
+    initCommittedState()
   }
 
   // *********** 繪圖處理 ***********
@@ -320,6 +324,7 @@ const sketch = (p) => {
     if (!e.isPrimary || e.button !== 0) return
     if (appStore.tool !== 'pen' && appStore.tool !== 'eraser') return
 
+    commitPendingStates()
     stroke.active = true
     stroke.pointerId = e.pointerId
     // 筆畫過程中版面不會變動，只取一次
@@ -405,6 +410,107 @@ const sketch = (p) => {
     scheduleSave()
   }
 
+  // *********** 狀態的復原紀錄 ***********
+  // 頭像、背景色與名字的變更也納入復原。每類狀態記錄最後提交的值，
+  // 操作結束時與目前的值比較，有差異才加入一筆紀錄
+  const applyAvatarState = (state) => {
+    clearTimeout(avatarCommitTimer)
+    avatar.x = state.x
+    avatar.y = state.y
+    appStore.avatarSize = state.size
+    appStore.avatarBorderSize = state.borderSize
+    avatar.size = state.size / 100
+    avatar.borderSize = state.borderSize
+    if (state.image !== appStore.avatarImage) {
+      appStore.avatarImage = state.image
+      // 頭像被移除時會是預設的佔位圖
+      if (state.image === DEFAULT_AVATAR) {
+        avatar.remove()
+      } else {
+        avatar.load(state.image)
+      }
+    } else {
+      avatar.build()
+    }
+  }
+
+  const stateHandlers = {
+    avatar: {
+      read: () => ({
+        x: avatar.x,
+        y: avatar.y,
+        size: appStore.avatarSize,
+        borderSize: appStore.avatarBorderSize,
+        image: appStore.avatarImage,
+      }),
+      apply: applyAvatarState,
+    },
+    bg: {
+      read: () => appStore.bgColor,
+      apply: (color) => {
+        appStore.bgColor = color
+        drawBg()
+        drawText()
+      },
+    },
+    name: {
+      read: () => appStore.name,
+      apply: (name) => {
+        appStore.name = name
+        drawText()
+      },
+    },
+  }
+  const committedState = {}
+  const commitTimers = {}
+
+  const isSameState = (a, b) =>
+    typeof a === 'object' ? Object.keys(a).every((key) => a[key] === b[key]) : a === b
+
+  // 記錄目前的狀態為已提交的值，作為之後比較的基準
+  const initCommittedState = () => {
+    for (const [key, handler] of Object.entries(stateHandlers)) {
+      committedState[key] = handler.read()
+    }
+  }
+
+  const commitState = (key) => {
+    clearTimeout(commitTimers[key])
+    delete commitTimers[key]
+    const handler = stateHandlers[key]
+    const before = committedState[key]
+    const after = handler.read()
+    if (isSameState(before, after)) return
+    committedState[key] = after
+    undo.captureState(before, after, (value) => {
+      committedState[key] = value
+      handler.apply(value)
+    })
+    syncHistory()
+  }
+
+  const commitStateLater = (key, delay) => {
+    clearTimeout(commitTimers[key])
+    commitTimers[key] = setTimeout(() => commitState(key), delay)
+  }
+
+  // 立即提交所有等待中的變更，確保紀錄順序正確
+  const commitPendingStates = () => {
+    for (const key of Object.keys(commitTimers)) commitState(key)
+  }
+
+  const undoStep = () => {
+    commitPendingStates()
+    undo.undo()
+    syncHistory()
+  }
+
+  const redoStep = () => {
+    commitPendingStates()
+    undo.redo()
+    syncHistory()
+  }
+
   // *********** 自動儲存 ***********
   let saveTimer = null
   // 重新開始時停止儲存，避免把舊作品寫回去
@@ -460,7 +566,10 @@ const sketch = (p) => {
       avatar.update()
     }
     clearTimeout(avatarCommitTimer)
-    avatarCommitTimer = setTimeout(() => avatar.build(), AVATAR_COMMIT_DELAY)
+    avatarCommitTimer = setTimeout(() => {
+      avatar.build()
+      commitState('avatar')
+    }, AVATAR_COMMIT_DELAY)
   }
 
   // *********** 鍵盤處理 ***********
@@ -468,12 +577,10 @@ const sketch = (p) => {
     if (p.keyIsDown(p.CONTROL)) {
       if (p.keyIsDown(90)) {
         // Ctrl + Z
-        undo.undo()
-        syncHistory()
+        undoStep()
       } else if (p.keyIsDown(89)) {
         // Ctrl + Y
-        undo.redo()
-        syncHistory()
+        redoStep()
       }
     }
   }
@@ -492,7 +599,7 @@ const sketch = (p) => {
   }
 
   p.mouseReleased = () => {
-    if (avatar.dragging) scheduleSave()
+    if (avatar.dragging) commitState('avatar')
     avatar.dragging = false
   }
 
@@ -555,7 +662,7 @@ const sketch = (p) => {
   }
 
   p.touchEnded = () => {
-    if (avatar.dragging) scheduleSave()
+    if (avatar.dragging) commitState('avatar')
     avatar.dragging = false
     mouseIn = false
   }
@@ -715,14 +822,8 @@ const sketch = (p) => {
 
   // *********** 事件處理 ***********
   // 事件監聽處理
-  bus.on('undo', () => {
-    undo.undo()
-    syncHistory()
-  })
-  bus.on('redo', () => {
-    undo.redo()
-    syncHistory()
-  })
+  bus.on('undo', undoStep)
+  bus.on('redo', redoStep)
   bus.on('clear', () => {
     layers.draw.clear()
     layers.draw.background(0)
@@ -731,9 +832,12 @@ const sketch = (p) => {
   })
   bus.on('cropAvatar', () => {
     avatar.load(appStore.avatarImage)
+    commitStateLater('avatar', 0)
   })
   bus.on('removeAvatar', () => {
     avatar.remove()
+    // 介面會在事件之後才把頭像改成佔位圖，稍後再提交
+    commitStateLater('avatar', 0)
   })
   bus.on('setAvatarBorderSize', () => {
     avatar.borderSize = appStore.avatarBorderSize
@@ -746,9 +850,11 @@ const sketch = (p) => {
   bus.on('setBgColor', () => {
     drawBg()
     drawText()
+    commitStateLater('bg', BG_COMMIT_DELAY)
   })
   bus.on('setName', () => {
     drawText()
+    commitStateLater('name', NAME_COMMIT_DELAY)
   })
   bus.on('download', async () => {
     const blob = await toBlob(composeLayers())
