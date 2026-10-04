@@ -9,7 +9,7 @@ import { useAppStore } from 'src/stores/app'
 import { useToolsStore } from 'src/stores/tools'
 import { useElementSize } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
-import { Notify } from 'quasar'
+import { Notify, Platform } from 'quasar'
 import Undo from 'src/class/undo'
 import Avatar from 'src/class/avatar'
 import Brush from 'src/class/brush'
@@ -544,6 +544,21 @@ const sketch = (p) => {
 
   const toBlob = (source) => new Promise((resolve) => source.toBlob(resolve, 'image/png'))
 
+  // 手機使用系統分享面板，可以直接存到相簿或分享
+  // 回傳 true 表示已處理（分享完成或使用者取消），false 表示需要改用下載
+  const shareImage = async (blob, filename) => {
+    if (!Platform.is.mobile) return false
+    const file = new File([blob], filename, { type: blob.type })
+    if (!navigator.canShare?.({ files: [file] })) return false
+    try {
+      await navigator.share({ files: [file] })
+      return true
+    } catch (e) {
+      // 使用者取消就不再下載；其他錯誤（例如失去使用者操作的授權）改用下載
+      return e.name === 'AbortError'
+    }
+  }
+
   const downloadBlob = (blob, filename) => {
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
@@ -592,7 +607,9 @@ const sketch = (p) => {
     drawText()
   })
   bus.on('download', async () => {
-    downloadBlob(await toBlob(composeLayers()), 'result.png')
+    const blob = await toBlob(composeLayers())
+    if (await shareImage(blob, 'result.png')) return
+    downloadBlob(blob, 'result.png')
   })
   bus.on('downloadLayer', async () => {
     const { default: JSZip } = await import('jszip')
