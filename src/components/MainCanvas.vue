@@ -1,5 +1,6 @@
 <template lang="pug">
 #main-canvas(ref="mainCanvas")
+  .canvas-stack(ref="canvasStack" :style="stackStyle")
 </template>
 
 <script setup>
@@ -29,6 +30,8 @@ const CANVAS_SIZE = {
   PADDING: 50,
 }
 const MAX_UNDO = 20
+// 筆畫取樣點的最小間距（畫布像素），過濾掉高頻觸控產生的過密點
+const MIN_STROKE_DISTANCE = 1.5
 // 名字最大字級
 const NAME_FONT_SIZE_MAX = 300
 
@@ -47,6 +50,7 @@ const bus = inject('bus')
 
 // *********** 顯示 ***********
 const mainCanvas = useTemplateRef('mainCanvas')
+const canvasStack = useTemplateRef('canvasStack')
 const { width: elWidth, height: elHeight } = useElementSize(mainCanvas)
 
 // 計算顯示尺寸，保持畫布的寬高比
@@ -64,21 +68,21 @@ const displaySize = computed(() => {
   }
 
   return {
-    width: Math.floor(width),
-    height: Math.floor(height),
+    width: Math.max(0, Math.floor(width)),
+    height: Math.max(0, Math.floor(height)),
   }
 })
 
-// 監聽顯示尺寸變化，更新畫布大小
+// 所有圖層 canvas 疊在同一個容器內，由容器控制顯示尺寸
+const stackStyle = computed(() => ({
+  width: `${displaySize.value.width}px`,
+  height: `${displaySize.value.height}px`,
+}))
+
+// 切換工具時更新游標
 watch(
-  displaySize,
-  async () => {
-    if (p5Instance && p5Instance.updateDisplay) {
-      await nextTick()
-      p5Instance.updateDisplay()
-    }
-  },
-  { deep: true },
+  () => appStore.tool,
+  () => p5Instance?.setToolCursor?.(),
 )
 
 // *********** Canvas & p5 ***********
@@ -87,17 +91,17 @@ let undo = null
 
 const sketch = async (p) => {
   // 圖層
+  // 主畫布只負責背景 + 頭像，繪圖圖層與文字圖層直接放在 DOM 上疊加，
+  // 由瀏覽器合成，避免每幀把 1080x1800 的 WebGL 圖層複製回 2D 畫布
   const layers = {
     // 背景圖
     bg: null,
-    // 繪圖
+    // 繪圖（WebGL，直接顯示在 DOM，CSS mix-blend-mode: lighten）
     draw: null,
     // 頭像
     avatar: null,
-    // 文字
+    // 文字（直接顯示在 DOM）
     text: null,
-    // 游標
-    // cursor: null,
   }
   // canvas 畫布
   let canvas = null
@@ -111,10 +115,24 @@ const sketch = async (p) => {
   let imgDefaultDraw = null
   // 頭像物件
   let avatar = null
-  // 控制是否需要重繪
-  let needsUpdate = true
+  // 主畫布（背景 + 頭像）是否需要重新合成
+  let compositeDirty = true
+  // 下一幀是否需要存復原快照
+  let captureNext = false
   // 滑鼠是否在畫布內
   let mouseIn = false
+  // 目前的筆畫
+  const stroke = {
+    active: false,
+    ended: false,
+    pointerId: null,
+    tool: null,
+    rect: null,
+    // 上一個已繪製的點
+    last: null,
+    // 尚未繪製的點
+    queue: [],
+  }
   // 中心點座標
   // WebGL 的 0, 0 在畫布中間
   const center = {
@@ -130,15 +148,23 @@ const sketch = async (p) => {
     imgTextBg = p.loadImage(TEXT_BACKGROUND_IMAGE)
   }
 
+  // 把圖層 canvas 放進疊加容器
+  const mountLayer = (el, className) => {
+    el.parent(canvasStack.value)
+    el.addClass(className)
+    el.show()
+    el.elt.style.width = '100%'
+    el.elt.style.height = '100%'
+  }
+
   // 初始化 p5.js
   p.setup = async () => {
     // 建立 canvas
     canvas = p.createCanvas(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
-    canvas.parent(mainCanvas.value)
-    p.background(100)
     // 限制像素密度
     // 手機的像素密度過高可能會超出 WebGL 尺寸限制並影響效能
     p.pixelDensity(1)
+    mountLayer(canvas, 'layer-base')
 
     // 偵測滑鼠是否在畫布內
     canvas.mouseOut(() => {
@@ -147,6 +173,12 @@ const sketch = async (p) => {
     canvas.mouseOver(() => {
       mouseIn = true
     })
+
+    // 繪圖改用 pointer events，可以取得兩幀之間所有的觸控點
+    canvas.elt.addEventListener('pointerdown', onPointerDown)
+    canvas.elt.addEventListener('pointermove', onPointerMove)
+    canvas.elt.addEventListener('pointerup', onPointerUp)
+    canvas.elt.addEventListener('pointercancel', onPointerUp)
 
     // *********** 背景圖層 ***********
     // 建立背景圖層
@@ -160,8 +192,9 @@ const sketch = async (p) => {
     // 初始化繪圖筆刷
     brush.instance(p)
     brush.load(layers.draw)
+    mountLayer(layers.draw, 'layer-draw')
     // 初始化復原功能
-    undo = new Undo(MAX_UNDO, layers.draw, center)
+    undo = new Undo(MAX_UNDO, layers.draw, center, p)
 
     // *********** 頭像圖層 ***********
     // 建立頭像圖層
@@ -180,90 +213,131 @@ const sketch = async (p) => {
     // 建立文字圖層
     layers.text = p.createGraphics(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
     layers.text.textAlign(p.CENTER, p.CENTER)
-
-    // *********** 游標圖層 ***********
-    // 建立游標圖層
-    // layers.cursor = p.createGraphics(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
+    mountLayer(layers.text, 'layer-text')
 
     // 初始繪圖
+    setCursor()
     drawBg()
     drawText()
-    updateCanvasDisplay()
   }
 
   // 重繪
+  // 注意 p.loop() 會同步執行一次 draw()，呼叫前要先設定好狀態
   const requestRedraw = () => {
-    needsUpdate = true
+    compositeDirty = true
     if (!p.isLooping()) {
       p.loop()
     }
   }
 
+  // 繪製筆刷
+  const drawStroke = () => {
+    if (stroke.queue.length === 0) return
+
+    brush.pick('rotring')
+    if (stroke.tool === 'pen') {
+      brush.strokeWeight(appStore.penSize * 2)
+      brush.stroke('white')
+    } else {
+      brush.strokeWeight(appStore.eraserSize * 2)
+      brush.stroke('black')
+    }
+
+    for (const point of stroke.queue) {
+      const from = stroke.last ?? point
+      brush.line(point.x, point.y, from.x, from.y)
+      stroke.last = point
+    }
+    stroke.queue.length = 0
+  }
+
   p.draw = () => {
-    // 僅在需要時更新畫面
-    if (!needsUpdate && !avatar.dragging) return
+    // 上一幀的筆畫已經由 p5.brush 寫入圖層，這時才存復原快照
+    if (captureNext) {
+      undo.capture()
+      captureNext = false
+    }
 
-    // 清除畫布
-    p.clear()
+    drawStroke()
+    if (stroke.ended) {
+      stroke.ended = false
+      captureNext = true
+    }
 
-    // 繪製背景
-    p.image(layers.bg, 0, 0)
+    // 拖曳頭像
+    if (avatar.image && avatar.dragging) {
+      const x = p.touches.length > 0 ? p.touches[0].x : p.mouseX
+      const y = p.touches.length > 0 ? p.touches[0].y : p.mouseY
+      avatar.drag(x, y)
+      avatar.draw()
+      compositeDirty = true
+    }
 
-    // 繪製筆刷
-    if (p.mouseIsPressed) {
-      if (appStore.tool === 'pen') {
-        brush.pick('rotring')
-        brush.strokeWeight(appStore.penSize * 2)
-        brush.stroke('white')
-        brush.line(
-          p.mouseX - center.x,
-          p.mouseY - center.y,
-          p.pmouseX - center.x,
-          p.pmouseY - center.y,
-        )
-      } else if (appStore.tool === 'eraser') {
-        brush.pick('rotring')
-        brush.strokeWeight(appStore.eraserSize * 2)
-        brush.stroke('black')
-        brush.line(
-          p.mouseX - center.x,
-          p.mouseY - center.y,
-          p.pmouseX - center.x,
-          p.pmouseY - center.y,
-        )
+    // 只有背景或頭像變動時才重新合成主畫布
+    if (compositeDirty) {
+      p.clear()
+      p.image(layers.bg, 0, 0)
+      if (avatar.image) {
+        p.image(layers.avatar, 0, 0)
       }
+      compositeDirty = false
     }
 
-    // 繪製頭像（動態圖層）
-    if (avatar.image) {
-      if (avatar.dragging) {
-        const x = p.touches.length > 0 ? p.touches[0].x : p.mouseX
-        const y = p.touches.length > 0 ? p.touches[0].y : p.mouseY
-        avatar.drag(x, y)
-        avatar.draw()
-      }
-      p.image(layers.avatar, 0, 0)
+    // 沒有進行中的操作時暫停繪製循環
+    if (!stroke.active && !captureNext && !avatar.dragging) {
+      p.noLoop()
     }
+  }
 
-    // 繪製繪圖圖層
-    p.blendMode(p.LIGHTEST)
-    p.image(layers.draw, 0, 0)
-    p.blendMode(p.BLEND)
+  // *********** 繪圖處理 ***********
+  // 轉換成繪圖圖層座標（WebGL 中心為原點）
+  const toCanvasPoint = (e) => ({
+    x: ((e.clientX - stroke.rect.left) * CANVAS_SIZE.WIDTH) / stroke.rect.width - center.x,
+    y: ((e.clientY - stroke.rect.top) * CANVAS_SIZE.HEIGHT) / stroke.rect.height - center.y,
+  })
 
-    // 繪製文字圖層
-    p.image(layers.text, 0, 0)
+  const queuePoint = (e) => {
+    const point = toCanvasPoint(e)
+    const prev = stroke.queue.at(-1) ?? stroke.last
+    if (prev && Math.hypot(point.x - prev.x, point.y - prev.y) < MIN_STROKE_DISTANCE) return
+    stroke.queue.push(point)
+  }
 
-    // 繪製游標
-    setCursor()
-    // 繪製游標圖層
-    // drawCursor()
-    // p.image(layers.cursor, 0, 0)
+  const onPointerDown = (e) => {
+    if (!e.isPrimary || e.button !== 0) return
+    if (appStore.tool !== 'pen' && appStore.tool !== 'eraser') return
 
-    // 如果沒有正在拖曳，下一幀不需要更新
-    needsUpdate = avatar.dragging || p.mouseIsPressed || mouseIn
-    if (!needsUpdate) {
-      p.noLoop() // 暫停繪製循環
+    stroke.active = true
+    stroke.ended = false
+    stroke.pointerId = e.pointerId
+    stroke.tool = appStore.tool
+    // 筆畫過程中版面不會變動，只取一次
+    stroke.rect = canvas.elt.getBoundingClientRect()
+    stroke.last = null
+    stroke.queue.push(toCanvasPoint(e))
+    requestRedraw()
+    // 手指移出畫布也能繼續追蹤這一筆
+    try {
+      canvas.elt.setPointerCapture(e.pointerId)
+    } catch {
+      // pointer 已失效時忽略
     }
+  }
+
+  const onPointerMove = (e) => {
+    if (!stroke.active || e.pointerId !== stroke.pointerId) return
+    const events = e.getCoalescedEvents?.() ?? []
+    for (const event of events.length > 0 ? events : [e]) {
+      queuePoint(event)
+    }
+  }
+
+  const onPointerUp = (e) => {
+    if (!stroke.active || e.pointerId !== stroke.pointerId) return
+    stroke.active = false
+    stroke.ended = true
+    stroke.pointerId = null
+    requestRedraw()
   }
 
   // *********** 鍵盤處理 ***********
@@ -272,11 +346,9 @@ const sketch = async (p) => {
       if (p.keyIsDown(90)) {
         // Ctrl + Z
         undo.undo()
-        requestRedraw()
       } else if (p.keyIsDown(89)) {
         // Ctrl + Y
         undo.redo()
-        requestRedraw()
       }
     }
   }
@@ -284,28 +356,20 @@ const sketch = async (p) => {
   // *********** 滑鼠處理 ***********
   p.mousePressed = () => {
     if (mouseIn && appStore.tool === 'avatar') {
-      requestRedraw()
       const pixel = layers.avatar.get(p.mouseX, p.mouseY)
       if (pixel[3] > 0) {
         avatar.dragging = true
         avatar.dragOffsetX = avatar.x - p.mouseX
         avatar.dragOffsetY = avatar.y - p.mouseY
       }
+      // p.loop() 會同步執行一次 draw()，必須在設定拖曳狀態之後才呼叫
+      requestRedraw()
     }
   }
 
   p.mouseReleased = () => {
-    if (mouseIn && (appStore.tool === 'pen' || appStore.tool === 'eraser')) {
-      undo.capture()
-      requestRedraw()
-    } else if (appStore.tool === 'avatar' && avatar.dragging) {
+    if (appStore.tool === 'avatar' && avatar.dragging) {
       avatar.dragging = false
-      requestRedraw()
-    }
-  }
-
-  p.mouseMoved = () => {
-    if (mouseIn) {
       requestRedraw()
     }
   }
@@ -358,35 +422,30 @@ const sketch = async (p) => {
   }
 
   // *********** 觸控處理 ***********
+  // 繪圖由 pointer events 處理，這裡只處理頭像拖曳
   p.touchStarted = () => {
     mouseIn =
       p.touches[0].x >= 0 &&
       p.touches[0].x <= CANVAS_SIZE.WIDTH &&
       p.touches[0].y >= 0 &&
       p.touches[0].y <= CANVAS_SIZE.HEIGHT
-    if (mouseIn) {
-      requestRedraw()
-      if (appStore.tool === 'avatar') {
-        const pixel = layers.avatar.get(p.touches[0].x, p.touches[0].y)
-        if (pixel[3] > 0) {
-          avatar.dragging = true
-          avatar.dragOffsetX = avatar.x - p.touches[0].x
-          avatar.dragOffsetY = avatar.y - p.touches[0].y
-        }
+    if (mouseIn && appStore.tool === 'avatar') {
+      const pixel = layers.avatar.get(p.touches[0].x, p.touches[0].y)
+      if (pixel[3] > 0) {
+        avatar.dragging = true
+        avatar.dragOffsetX = avatar.x - p.touches[0].x
+        avatar.dragOffsetY = avatar.y - p.touches[0].y
       }
+      // p.loop() 會同步執行一次 draw()，必須在設定拖曳狀態之後才呼叫
+      requestRedraw()
     }
   }
 
   p.touchEnded = () => {
-    if (mouseIn) {
-      if (appStore.tool === 'pen' || appStore.tool === 'eraser') {
-        undo.capture()
-        requestRedraw()
-      } else if (appStore.tool === 'avatar' && avatar.dragging) {
-        avatar.dragging = false
-        // 拖曳結束時重繪
-        requestRedraw()
-      }
+    if (appStore.tool === 'avatar' && avatar.dragging) {
+      avatar.dragging = false
+      // 拖曳結束時重繪
+      requestRedraw()
     }
     mouseIn = false
   }
@@ -401,28 +460,9 @@ const sketch = async (p) => {
       p.touches[0].y >= 0 &&
       p.touches[0].y <= CANVAS_SIZE.HEIGHT
 
-    if (mouseIn) {
-      // 觸控移動時重繪
-      if (avatar.dragging) {
-        requestRedraw()
-      }
-    }
-
     // iOS 阻止頁面捲動
     return false
   }
-
-  // *********** 顯示尺寸 ***********
-  // 更新畫布顯示尺寸
-  const updateCanvasDisplay = () => {
-    p.noLoop()
-    if (canvas) {
-      canvas.elt.style.width = `${displaySize.value.width}px`
-      canvas.elt.style.height = `${displaySize.value.height}px`
-    }
-    requestRedraw()
-  }
-  p.updateDisplay = updateCanvasDisplay
 
   // *********** 繪製圖層 ***********
   // 繪製背景圖層
@@ -483,30 +523,7 @@ const sketch = async (p) => {
     layers.text.blendMode(p.BLEND)
     // 恢復變換矩陣
     layers.text.pop()
-
-    // 更新靜態圖層並重繪
-    requestRedraw()
   }
-
-  // 繪製游標圖層
-  // const drawCursor = () => {
-  //   // layers.cursor.clear()
-  //   if (appStore.tool === 'pen') {
-  //     p.cursor('none')
-  //     layers.cursor.fill('rgba(255, 255, 255, 0.5)')
-  //     layers.cursor.stroke(255)
-  //     layers.cursor.ellipse(p.mouseX, p.mouseY, appStore.penSize)
-  //   } else if (appStore.tool === 'eraser') {
-  //     p.cursor('none')
-  //     layers.cursor.fill('rgba(0, 0, 0, 0.5)')
-  //     layers.cursor.stroke(0)
-  //     layers.cursor.ellipse(p.mouseX, p.mouseY, appStore.eraserSize)
-  //   } else if (appStore.tool === 'avatar') {
-  //     p.cursor('move')
-  //   } else {
-  //     p.cursor('default')
-  //   }
-  // }
 
   const setCursor = () => {
     if (appStore.tool === 'pen') {
@@ -519,22 +536,45 @@ const sketch = async (p) => {
       p.cursor('default')
     }
   }
+  p.setToolCursor = setCursor
+
+  // *********** 輸出 ***********
+  // 合成所有圖層，與畫面上的 DOM 疊加結果相同
+  const composeLayers = () => {
+    const output = document.createElement('canvas')
+    output.width = CANVAS_SIZE.WIDTH
+    output.height = CANVAS_SIZE.HEIGHT
+    const ctx = output.getContext('2d')
+    ctx.drawImage(canvas.elt, 0, 0)
+    ctx.globalCompositeOperation = 'lighten'
+    ctx.drawImage(layers.draw.elt, 0, 0)
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.drawImage(layers.text.elt, 0, 0)
+    return output
+  }
+
+  const downloadBlob = (blob, filename) => {
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(link.href)
+  }
 
   // *********** 事件處理 ***********
   // 事件監聽處理
   bus.on('undo', () => {
     undo.undo()
-    requestRedraw()
   })
   bus.on('redo', () => {
     undo.redo()
-    requestRedraw()
   })
   bus.on('clear', () => {
     layers.draw.clear()
     layers.draw.background(0)
     undo.capture()
-    requestRedraw()
   })
   bus.on('cropAvatar', () => {
     if (avatar.image) {
@@ -575,7 +615,7 @@ const sketch = async (p) => {
     drawText()
   })
   bus.on('download', () => {
-    p.saveCanvas('result.png')
+    composeLayers().toBlob((blob) => downloadBlob(blob, 'result.png'), 'image/png')
   })
   bus.on('downloadLayer', () => {
     const zip = new JSZip()
@@ -586,12 +626,7 @@ const sketch = async (p) => {
     })
     zip.file('text.png', layers.text.canvas.toDataURL('image/png').split(',')[1], { base64: true })
     zip.generateAsync({ type: 'blob' }).then((content) => {
-      const link = document.createElement('a')
-      link.href = URL.createObjectURL(content)
-      link.download = 'layers.zip'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+      downloadBlob(content, 'layers.zip')
     })
   })
 }
@@ -612,12 +647,22 @@ onMounted(async () => {
   align-items: center;
   position: relative;
   touch-action: none;
-canvas
-  display: block;
-  margin: 0 auto;
+.canvas-stack
+  position: relative;
+  flex: none;
+  // 讓 mix-blend-mode 只和容器內的圖層混合
+  isolation: isolate;
   touch-action: none;
-  will-change: transform;
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
   -webkit-tap-highlight-color: transparent;
+  :deep(canvas)
+    position: absolute;
+    inset: 0;
+    display: block;
+    touch-action: none;
+  // 上層只負責顯示，事件交給最底層的主畫布
+  :deep(.layer-draw),
+  :deep(.layer-text)
+    pointer-events: none;
+  :deep(.layer-draw)
+    mix-blend-mode: lighten;
 </style>
