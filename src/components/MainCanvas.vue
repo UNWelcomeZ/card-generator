@@ -32,6 +32,8 @@ const CANVAS_SIZE = {
 const MAX_UNDO = 20
 // 筆畫取樣點的最小間距（畫布像素），過濾掉高頻觸控產生的過密點
 const MIN_STROKE_DISTANCE = 1.5
+// 復原範圍額外保留的邊界，涵蓋 p5.brush 筆觸的隨機抖動
+const STROKE_PADDING = 8
 // 名字最大字級
 const NAME_FONT_SIZE_MAX = 300
 
@@ -117,8 +119,8 @@ const sketch = async (p) => {
   let avatar = null
   // 主畫布（背景 + 頭像）是否需要重新合成
   let compositeDirty = true
-  // 下一幀是否需要存復原快照
-  let captureNext = false
+  // 下一幀要存進復原紀錄的範圍
+  let pendingCapture = null
   // 滑鼠是否在畫布內
   let mouseIn = false
   // 目前的筆畫
@@ -132,6 +134,10 @@ const sketch = async (p) => {
     last: null,
     // 尚未繪製的點
     queue: [],
+    // 已繪製範圍（WebGL 座標）
+    bounds: null,
+    // 這一筆用過的最大筆刷粗細
+    maxWeight: 0,
   }
   // 中心點座標
   // WebGL 的 0, 0 在畫布中間
@@ -234,34 +240,55 @@ const sketch = async (p) => {
   const drawStroke = () => {
     if (stroke.queue.length === 0) return
 
+    const weight = (stroke.tool === 'pen' ? appStore.penSize : appStore.eraserSize) * 2
+    stroke.maxWeight = Math.max(stroke.maxWeight, weight)
+
     brush.pick('rotring')
-    if (stroke.tool === 'pen') {
-      brush.strokeWeight(appStore.penSize * 2)
-      brush.stroke('white')
-    } else {
-      brush.strokeWeight(appStore.eraserSize * 2)
-      brush.stroke('black')
-    }
+    brush.strokeWeight(weight)
+    brush.stroke(stroke.tool === 'pen' ? 'white' : 'black')
 
     for (const point of stroke.queue) {
       const from = stroke.last ?? point
       brush.line(point.x, point.y, from.x, from.y)
       stroke.last = point
+
+      const b = stroke.bounds
+      if (b) {
+        b.minX = Math.min(b.minX, point.x)
+        b.minY = Math.min(b.minY, point.y)
+        b.maxX = Math.max(b.maxX, point.x)
+        b.maxY = Math.max(b.maxY, point.y)
+      } else {
+        stroke.bounds = { minX: point.x, minY: point.y, maxX: point.x, maxY: point.y }
+      }
     }
     stroke.queue.length = 0
   }
 
+  // 這一筆影響的範圍（畫布座標）
+  const getStrokeRect = () => {
+    const b = stroke.bounds
+    if (!b) return null
+    const pad = stroke.maxWeight + STROKE_PADDING
+    return {
+      x: b.minX + center.x - pad,
+      y: b.minY + center.y - pad,
+      w: b.maxX - b.minX + pad * 2,
+      h: b.maxY - b.minY + pad * 2,
+    }
+  }
+
   p.draw = () => {
-    // 上一幀的筆畫已經由 p5.brush 寫入圖層，這時才存復原快照
-    if (captureNext) {
-      undo.capture()
-      captureNext = false
+    // 上一幀的筆畫已經由 p5.brush 寫入圖層，這時才存進復原紀錄
+    if (pendingCapture) {
+      undo.capture(pendingCapture)
+      pendingCapture = null
     }
 
     drawStroke()
     if (stroke.ended) {
       stroke.ended = false
-      captureNext = true
+      pendingCapture = getStrokeRect()
     }
 
     // 拖曳頭像
@@ -284,7 +311,7 @@ const sketch = async (p) => {
     }
 
     // 沒有進行中的操作時暫停繪製循環
-    if (!stroke.active && !captureNext && !avatar.dragging) {
+    if (!stroke.active && !pendingCapture && !avatar.dragging) {
       p.noLoop()
     }
   }
@@ -314,6 +341,8 @@ const sketch = async (p) => {
     // 筆畫過程中版面不會變動，只取一次
     stroke.rect = canvas.elt.getBoundingClientRect()
     stroke.last = null
+    stroke.bounds = null
+    stroke.maxWeight = 0
     stroke.queue.push(toCanvasPoint(e))
     requestRedraw()
     // 手指移出畫布也能繼續追蹤這一筆
