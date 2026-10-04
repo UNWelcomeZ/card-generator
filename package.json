@@ -19,7 +19,6 @@
   "dependencies": {
     "@quasar/extras": "^1.16.4",
     "@vueuse/core": "^13.5.0",
-    "colorthief": "^2.6.0",
     "jszip": "^3.10.1",
     "p5": "1.11.8",
     "p5.brush": "^1.1.4",

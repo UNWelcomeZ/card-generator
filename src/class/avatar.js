@@ -1,5 +1,3 @@
-import ColorThief from 'colorthief'
-
 export default class Avatar {
   constructor(layer, CANVAS_SIZE, p5, size) {
     this.layer = layer
@@ -15,9 +13,6 @@ export default class Avatar {
     this.borderSize = 20
     // Size
     this.size = size
-    // Dominant color
-    this.color = null
-    this.colorPalette = null
     // Drag moving offset
     this.dragging = false
     this.dragOffsetX = 0
@@ -38,11 +33,6 @@ export default class Avatar {
   }
 
   set() {
-    // 取得圖片主色
-    const colorThief = new ColorThief()
-    this.color = colorThief.getColor(this.image.elt)
-    this.colorPalette = colorThief.getPalette(this.image.elt)
-
     // 計算顯示的縮放比例
     this.ratio = Math.min(
       this.CANVAS_SIZE.WIDTH / this.image.width,
