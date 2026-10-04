@@ -1,135 +1,185 @@
+// 頭像
+// 帶邊框的頭像畫在一張獨立的 canvas 上，直接疊在 DOM 裡顯示，
+// 拖曳時只更新 CSS transform，不需要重繪任何畫布
 export default class Avatar {
-  constructor(layer, CANVAS_SIZE, p5, size) {
-    this.layer = layer
-    this.ctx = this.layer.canvas.getContext('2d')
-    // Position
-    this.x = 0
-    this.y = 0
+  constructor(CANVAS_SIZE, size, borderSize) {
+    this.CANVAS_SIZE = CANVAS_SIZE
+    // Position（畫布座標，頭像中心）
+    this.x = CANVAS_SIZE.WIDTH / 2
+    this.y = CANVAS_SIZE.HEIGHT / 2
     // Resize ratio
     this.ratio = 0
     // Image
     this.image = null
     // Border size
-    this.borderSize = 20
+    this.borderSize = borderSize
     // Size
     this.size = size
     // Drag moving offset
     this.dragging = false
     this.dragOffsetX = 0
     this.dragOffsetY = 0
-    // 邊框快取
-    this.borderCache = null
-    this.lastBorderSize = -1
-    this.lastSize = -1
 
-    this.layer.imageMode(p5.CENTER)
-    this.CANVAS_SIZE = CANVAS_SIZE
-    this.x = this.CANVAS_SIZE.WIDTH / 2
-    this.y = this.CANVAS_SIZE.HEIGHT / 2
-
-    this.scale = 1
-
-    this.p5 = p5
+    // 顯示用的 canvas（含邊框）
+    this.canvas = document.createElement('canvas')
+    this.canvas.className = 'layer-avatar'
+    this.canvas.style.display = 'none'
+    this.ctx = this.canvas.getContext('2d')
+    // 建立 canvas 時使用的大小，預覽時用來計算縮放
+    this.builtSize = size
+    // 預先縮放好的頭像，描邊時不用每次都從原圖縮放
+    this.source = null
+    // 點擊判斷用的 alpha 遮罩，第一次需要時才建立
+    this.hitMask = null
+    // 畫布座標 → 顯示像素的比例
+    this.displayScale = 1
+    // 目前正在載入的圖片
+    this.pendingImage = null
   }
 
-  set() {
-    // 計算顯示的縮放比例
-    this.ratio = Math.min(
-      this.CANVAS_SIZE.WIDTH / this.image.width,
-      this.CANVAS_SIZE.HEIGHT / this.image.height,
-    )
-
-    // 重置邊框快取
-    this.borderCache = null
-    this.lastBorderSize = -1
-    this.lastSize = -1
-
-    this.draw()
+  // 載入圖片
+  load(url) {
+    const image = new Image()
+    this.pendingImage = image
+    image.onload = () => {
+      // 載入期間又換了別張圖
+      if (this.pendingImage !== image) return
+      this.pendingImage = null
+      this.image = image
+      this.source = null
+      // 計算顯示的縮放比例
+      this.ratio = Math.min(
+        this.CANVAS_SIZE.WIDTH / image.naturalWidth,
+        this.CANVAS_SIZE.HEIGHT / image.naturalHeight,
+      )
+      this.build()
+    }
+    image.src = url
   }
 
-  // 建立邊框快取
-  createBorderCache() {
+  // 移除圖片
+  remove() {
+    this.pendingImage = null
+    this.image = null
+    this.source = null
+    this.hitMask = null
+    this.dragging = false
+    // 釋放 canvas 記憶體
+    this.canvas.width = 0
+    this.canvas.height = 0
+    this.update()
+  }
+
+  // 建立帶邊框的頭像
+  // samples 為描邊取樣數，預覽時可以用較少的數量加快速度
+  build(samples = 36) {
     if (!this.image) return
 
-    // 如果設置沒變，使用現有快取
-    if (
-      this.borderCache &&
-      this.lastBorderSize === this.borderSize &&
-      this.lastSize === this.size
-    ) {
-      return
+    const w = Math.max(1, Math.round(this.image.naturalWidth * this.ratio * this.size))
+    const h = Math.max(1, Math.round(this.image.naturalHeight * this.ratio * this.size))
+
+    if (!this.source) {
+      this.source = document.createElement('canvas')
     }
-
-    const w = this.image.width * this.ratio * this.size
-    const h = this.image.height * this.ratio * this.size
-
-    // 建立快取圖層
-    this.borderCache = this.p5.createGraphics(
-      Math.ceil(w + this.borderSize * 2),
-      Math.ceil(h + this.borderSize * 2),
-    )
+    if (this.source.width !== w || this.source.height !== h) {
+      this.source.width = w
+      this.source.height = h
+      this.source.getContext('2d').drawImage(this.image, 0, 0, w, h)
+    }
 
     const thickness = this.borderSize
-    const samples = 36
-    const centerX = this.borderCache.width / 2
-    const centerY = this.borderCache.height / 2
+    this.canvas.width = Math.ceil(w + thickness * 2)
+    this.canvas.height = Math.ceil(h + thickness * 2)
+    const ctx = this.ctx
 
-    // 畫邊框
-    for (let angle = 0; angle < 360; angle += 360 / samples) {
-      const offsetX = thickness * Math.sin((Math.PI * 2 * angle) / 360)
-      const offsetY = thickness * Math.cos((Math.PI * 2 * angle) / 360)
-
-      this.borderCache.push()
-      this.borderCache.imageMode(this.p5.CENTER)
-      this.borderCache.image(this.image, centerX + offsetX, centerY + offsetY, w, h)
-      this.borderCache.pop()
+    // 畫邊框：往各方向偏移繪製，再把形狀填成白色
+    for (let i = 0; i < samples; i++) {
+      const angle = (Math.PI * 2 * i) / samples
+      ctx.drawImage(
+        this.source,
+        thickness + thickness * Math.sin(angle),
+        thickness + thickness * Math.cos(angle),
+      )
     }
+    ctx.globalCompositeOperation = 'source-in'
+    ctx.fillStyle = 'white'
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
 
-    const originalComposite = this.borderCache.canvas.getContext('2d').globalCompositeOperation
-    this.borderCache.canvas.getContext('2d').globalCompositeOperation = 'source-in'
-    this.borderCache.fill('white')
-    this.borderCache.noStroke()
-    this.borderCache.rect(0, 0, this.borderCache.width, this.borderCache.height)
+    // 畫頭像本體
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.drawImage(this.source, thickness, thickness)
 
-    this.borderCache.canvas.getContext('2d').globalCompositeOperation = 'source-over'
-    this.borderCache.push()
-    this.borderCache.imageMode(this.p5.CENTER)
-    this.borderCache.image(this.image, centerX, centerY, w, h)
-    this.borderCache.pop()
-
-    this.borderCache.canvas.getContext('2d').globalCompositeOperation = originalComposite
-
-    // 保存目前設置以便比較
-    this.lastBorderSize = this.borderSize
-    this.lastSize = this.size
+    this.builtSize = this.size
+    this.hitMask = null
+    this.update()
   }
 
-  draw() {
-    this.layer.clear()
+  // 目前在畫布上的尺寸（預覽時依 size 縮放已建立的 canvas）
+  get displayWidth() {
+    return (this.canvas.width * this.size) / this.builtSize
+  }
 
-    // 如果沒有圖片，則不繪製
-    if (!this.image) return
+  get displayHeight() {
+    return (this.canvas.height * this.size) / this.builtSize
+  }
 
-    // 建立圖片邊框快取
-    this.createBorderCache()
+  setDisplayScale(scale) {
+    this.displayScale = scale
+    this.update()
+  }
 
-    if (this.borderCache) {
-      // 使用預先繪製的邊框快取
-      this.layer.imageMode(this.p5.CENTER)
-      this.layer.image(this.borderCache, this.x, this.y)
+  // 更新顯示尺寸與位置
+  update() {
+    const style = this.canvas.style
+    if (!this.image || this.canvas.width === 0) {
+      style.display = 'none'
+      return
     }
+    style.display = 'block'
+    style.width = `${this.displayWidth * this.displayScale}px`
+    style.height = `${this.displayHeight * this.displayScale}px`
+    this.updatePosition()
+  }
+
+  updatePosition() {
+    const left = (this.x - this.displayWidth / 2) * this.displayScale
+    const top = (this.y - this.displayHeight / 2) * this.displayScale
+    this.canvas.style.transform = `translate(${left}px, ${top}px)`
+  }
+
+  // 判斷畫布座標是否點在頭像上（不透明的像素）
+  hitTest(x, y) {
+    if (!this.image || this.canvas.width === 0) return false
+
+    const k = this.size / this.builtSize
+    const u = Math.floor((x - (this.x - this.displayWidth / 2)) / k)
+    const v = Math.floor((y - (this.y - this.displayHeight / 2)) / k)
+    const { width, height } = this.canvas
+    if (u < 0 || v < 0 || u >= width || v >= height) return false
+
+    // 只讀取一次像素，之後重複使用
+    if (!this.hitMask) {
+      const data = this.ctx.getImageData(0, 0, width, height).data
+      this.hitMask = new Uint8Array(width * height)
+      for (let i = 0; i < this.hitMask.length; i++) {
+        this.hitMask[i] = data[i * 4 + 3]
+      }
+    }
+    return this.hitMask[v * width + u] > 0
+  }
+
+  // 繪製到輸出用的畫布
+  renderTo(ctx) {
+    if (!this.image || this.canvas.width === 0) return
+    const w = this.displayWidth
+    const h = this.displayHeight
+    ctx.drawImage(this.canvas, this.x - w / 2, this.y - h / 2, w, h)
   }
 
   drag(x, y) {
     // 計算拖曳位置
     this.x = x + this.dragOffsetX
     this.y = y + this.dragOffsetY
-
-    // 限制頭像不要超出畫布範圍
-    // const borderWidth = this.borderCache ? this.borderCache.width / 2 : 0
-    // const borderHeight = this.borderCache ? this.borderCache.height / 2 : 0
-
-    // this.x = Math.max(borderWidth, Math.min(this.CANVAS_SIZE.WIDTH - borderWidth, this.x))
-    // this.y = Math.max(borderHeight, Math.min(this.CANVAS_SIZE.HEIGHT - borderHeight, this.y))
+    this.updatePosition()
   }
 }

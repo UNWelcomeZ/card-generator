@@ -36,6 +36,10 @@ const MIN_STROKE_DISTANCE = 1.5
 const STROKE_PADDING = 8
 // 名字最大字級
 const NAME_FONT_SIZE_MAX = 300
+// 調整頭像時，預覽用的描邊取樣數
+const AVATAR_PREVIEW_SAMPLES = 12
+// 停止調整頭像多久後重建完整品質的邊框（毫秒）
+const AVATAR_COMMIT_DELAY = 200
 
 // *********** Store & Event ***********
 const appStore = useAppStore()
@@ -81,6 +85,9 @@ const stackStyle = computed(() => ({
   height: `${displaySize.value.height}px`,
 }))
 
+// 顯示尺寸變化時，更新頭像的顯示位置
+watch(displaySize, () => p5Instance?.updateDisplay?.(), { deep: true })
+
 // 切換工具時更新游標
 watch(
   () => appStore.tool,
@@ -91,21 +98,17 @@ watch(
 let p5Instance = null
 let undo = null
 
-const sketch = async (p) => {
+const sketch = (p) => {
   // 圖層
-  // 主畫布只負責背景 + 頭像，繪圖圖層與文字圖層直接放在 DOM 上疊加，
-  // 由瀏覽器合成，避免每幀把 1080x1800 的 WebGL 圖層複製回 2D 畫布
+  // 每個圖層都是獨立的 canvas，直接疊在 DOM 上由瀏覽器合成：
+  // 主畫布（背景）→ 頭像 → 繪圖（mix-blend-mode: lighten）→ 文字
   const layers = {
-    // 背景圖
-    bg: null,
-    // 繪圖（WebGL，直接顯示在 DOM，CSS mix-blend-mode: lighten）
+    // 繪圖（WebGL）
     draw: null,
-    // 頭像
-    avatar: null,
-    // 文字（直接顯示在 DOM）
+    // 文字
     text: null,
   }
-  // canvas 畫布
+  // canvas 畫布，只畫背景
   let canvas = null
   // 字體
   let font = null
@@ -117,10 +120,10 @@ const sketch = async (p) => {
   let imgDefaultDraw = null
   // 頭像物件
   let avatar = null
-  // 主畫布（背景 + 頭像）是否需要重新合成
-  let compositeDirty = true
   // 下一幀要存進復原紀錄的範圍
   let pendingCapture = null
+  // 頭像完整品質重建的計時器
+  let avatarCommitTimer = null
   // 滑鼠是否在畫布內
   let mouseIn = false
   // 目前的筆畫
@@ -164,7 +167,7 @@ const sketch = async (p) => {
   }
 
   // 初始化 p5.js
-  p.setup = async () => {
+  p.setup = () => {
     // 建立 canvas
     canvas = p.createCanvas(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
     // 限制像素密度
@@ -186,9 +189,11 @@ const sketch = async (p) => {
     canvas.elt.addEventListener('pointerup', onPointerUp)
     canvas.elt.addEventListener('pointercancel', onPointerUp)
 
-    // *********** 背景圖層 ***********
-    // 建立背景圖層
-    layers.bg = p.createGraphics(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
+    // *********** 頭像圖層 ***********
+    avatar = new Avatar(CANVAS_SIZE, appStore.avatarSize / 100, appStore.avatarBorderSize)
+    canvasStack.value.appendChild(avatar.canvas)
+    updateDisplay()
+    avatar.load(DEFAULT_AVATAR_IMAGE)
 
     // *********** 繪圖圖層 ***********
     // 建立繪圖圖層
@@ -202,19 +207,6 @@ const sketch = async (p) => {
     // 初始化復原功能
     undo = new Undo(MAX_UNDO, layers.draw, center, p)
 
-    // *********** 頭像圖層 ***********
-    // 建立頭像圖層
-    layers.avatar = p.createGraphics(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
-    // 初始化頭像物件
-    avatar = new Avatar(layers.avatar, CANVAS_SIZE, p, appStore.avatarSize / 100)
-    avatar.image = p.createImg(DEFAULT_AVATAR_IMAGE, 'Avatar Image')
-    avatar.image.hide()
-    avatar.image.elt.onload = () => {
-      avatar.set()
-      avatar.draw()
-      requestRedraw()
-    }
-
     // *********** 文字圖層 ***********
     // 建立文字圖層
     layers.text = p.createGraphics(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
@@ -227,10 +219,9 @@ const sketch = async (p) => {
     drawText()
   }
 
-  // 重繪
+  // 開始繪製循環
   // 注意 p.loop() 會同步執行一次 draw()，呼叫前要先設定好狀態
-  const requestRedraw = () => {
-    compositeDirty = true
+  const startLoop = () => {
     if (!p.isLooping()) {
       p.loop()
     }
@@ -278,6 +269,7 @@ const sketch = async (p) => {
     }
   }
 
+  // draw() 只負責筆刷，其他圖層都是事件發生時才更新
   p.draw = () => {
     // 上一幀的筆畫已經由 p5.brush 寫入圖層，這時才存進復原紀錄
     if (pendingCapture) {
@@ -291,27 +283,8 @@ const sketch = async (p) => {
       pendingCapture = getStrokeRect()
     }
 
-    // 拖曳頭像
-    if (avatar.image && avatar.dragging) {
-      const x = p.touches.length > 0 ? p.touches[0].x : p.mouseX
-      const y = p.touches.length > 0 ? p.touches[0].y : p.mouseY
-      avatar.drag(x, y)
-      avatar.draw()
-      compositeDirty = true
-    }
-
-    // 只有背景或頭像變動時才重新合成主畫布
-    if (compositeDirty) {
-      p.clear()
-      p.image(layers.bg, 0, 0)
-      if (avatar.image) {
-        p.image(layers.avatar, 0, 0)
-      }
-      compositeDirty = false
-    }
-
-    // 沒有進行中的操作時暫停繪製循環
-    if (!stroke.active && !pendingCapture && !avatar.dragging) {
+    // 沒有進行中的筆畫時暫停繪製循環
+    if (!stroke.active && !pendingCapture) {
       p.noLoop()
     }
   }
@@ -344,7 +317,7 @@ const sketch = async (p) => {
     stroke.bounds = null
     stroke.maxWeight = 0
     stroke.queue.push(toCanvasPoint(e))
-    requestRedraw()
+    startLoop()
     // 手指移出畫布也能繼續追蹤這一筆
     try {
       canvas.elt.setPointerCapture(e.pointerId)
@@ -366,7 +339,28 @@ const sketch = async (p) => {
     stroke.active = false
     stroke.ended = true
     stroke.pointerId = null
-    requestRedraw()
+    startLoop()
+  }
+
+  // *********** 頭像處理 ***********
+  // 開始拖曳頭像
+  const startAvatarDrag = (x, y) => {
+    if (!avatar.hitTest(x, y)) return
+    avatar.dragging = true
+    avatar.dragOffsetX = avatar.x - x
+    avatar.dragOffsetY = avatar.y - y
+  }
+
+  // 調整頭像時先快速預覽，停止調整後才重建完整品質的邊框
+  const previewAvatar = (rebuildBorder) => {
+    if (rebuildBorder) {
+      avatar.build(AVATAR_PREVIEW_SAMPLES)
+    } else {
+      // 只改大小時，直接縮放現有的頭像
+      avatar.update()
+    }
+    clearTimeout(avatarCommitTimer)
+    avatarCommitTimer = setTimeout(() => avatar.build(), AVATAR_COMMIT_DELAY)
   }
 
   // *********** 鍵盤處理 ***********
@@ -385,22 +379,18 @@ const sketch = async (p) => {
   // *********** 滑鼠處理 ***********
   p.mousePressed = () => {
     if (mouseIn && appStore.tool === 'avatar') {
-      const pixel = layers.avatar.get(p.mouseX, p.mouseY)
-      if (pixel[3] > 0) {
-        avatar.dragging = true
-        avatar.dragOffsetX = avatar.x - p.mouseX
-        avatar.dragOffsetY = avatar.y - p.mouseY
-      }
-      // p.loop() 會同步執行一次 draw()，必須在設定拖曳狀態之後才呼叫
-      requestRedraw()
+      startAvatarDrag(p.mouseX, p.mouseY)
+    }
+  }
+
+  p.mouseDragged = () => {
+    if (avatar.dragging) {
+      avatar.drag(p.mouseX, p.mouseY)
     }
   }
 
   p.mouseReleased = () => {
-    if (appStore.tool === 'avatar' && avatar.dragging) {
-      avatar.dragging = false
-      requestRedraw()
-    }
+    avatar.dragging = false
   }
 
   p.mouseWheel = (e) => {
@@ -420,8 +410,7 @@ const sketch = async (p) => {
           if (appStore.avatarSize < AVATAR_SIZE_MAX) {
             appStore.avatarSize++
             avatar.size = appStore.avatarSize / 100
-            avatar.draw()
-            requestRedraw()
+            previewAvatar(false)
           }
           break
       }
@@ -441,8 +430,7 @@ const sketch = async (p) => {
           if (appStore.avatarSize > AVATAR_SIZE_MIN) {
             appStore.avatarSize--
             avatar.size = appStore.avatarSize / 100
-            avatar.draw()
-            requestRedraw()
+            previewAvatar(false)
           }
           break
       }
@@ -459,23 +447,12 @@ const sketch = async (p) => {
       p.touches[0].y >= 0 &&
       p.touches[0].y <= CANVAS_SIZE.HEIGHT
     if (mouseIn && appStore.tool === 'avatar') {
-      const pixel = layers.avatar.get(p.touches[0].x, p.touches[0].y)
-      if (pixel[3] > 0) {
-        avatar.dragging = true
-        avatar.dragOffsetX = avatar.x - p.touches[0].x
-        avatar.dragOffsetY = avatar.y - p.touches[0].y
-      }
-      // p.loop() 會同步執行一次 draw()，必須在設定拖曳狀態之後才呼叫
-      requestRedraw()
+      startAvatarDrag(p.touches[0].x, p.touches[0].y)
     }
   }
 
   p.touchEnded = () => {
-    if (appStore.tool === 'avatar' && avatar.dragging) {
-      avatar.dragging = false
-      // 拖曳結束時重繪
-      requestRedraw()
-    }
+    avatar.dragging = false
     mouseIn = false
   }
 
@@ -489,19 +466,29 @@ const sketch = async (p) => {
       p.touches[0].y >= 0 &&
       p.touches[0].y <= CANVAS_SIZE.HEIGHT
 
+    if (avatar.dragging) {
+      avatar.drag(p.touches[0].x, p.touches[0].y)
+    }
+
     // iOS 阻止頁面捲動
     return false
   }
 
+  // *********** 顯示尺寸 ***********
+  // p5 還在 preload 時頭像尚未建立，setup 會再呼叫一次
+  const updateDisplay = () => {
+    avatar?.setDisplayScale(displaySize.value.width / CANVAS_SIZE.WIDTH)
+  }
+  p.updateDisplay = updateDisplay
+
   // *********** 繪製圖層 ***********
-  // 繪製背景圖層
+  // 繪製背景（主畫布）
   const drawBg = () => {
-    layers.bg.clear()
-    layers.bg.background(appStore.bgColor)
-    layers.bg.blendMode(p.MULTIPLY)
-    layers.bg.image(imgBg, 0, 0, CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
-    layers.bg.blendMode(p.BLEND)
-    requestRedraw()
+    p.clear()
+    p.background(appStore.bgColor)
+    p.blendMode(p.MULTIPLY)
+    p.image(imgBg, 0, 0, CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
+    p.blendMode(p.BLEND)
   }
 
   // 繪製文字圖層
@@ -568,19 +555,34 @@ const sketch = async (p) => {
   p.setToolCursor = setCursor
 
   // *********** 輸出 ***********
-  // 合成所有圖層，與畫面上的 DOM 疊加結果相同
-  const composeLayers = () => {
+  const createOutputCanvas = () => {
     const output = document.createElement('canvas')
     output.width = CANVAS_SIZE.WIDTH
     output.height = CANVAS_SIZE.HEIGHT
+    return output
+  }
+
+  // 合成所有圖層，與畫面上的 DOM 疊加結果相同
+  const composeLayers = () => {
+    const output = createOutputCanvas()
     const ctx = output.getContext('2d')
     ctx.drawImage(canvas.elt, 0, 0)
+    avatar.renderTo(ctx)
     ctx.globalCompositeOperation = 'lighten'
     ctx.drawImage(layers.draw.elt, 0, 0)
     ctx.globalCompositeOperation = 'source-over'
     ctx.drawImage(layers.text.elt, 0, 0)
     return output
   }
+
+  // 單獨輸出頭像圖層
+  const renderAvatarLayer = () => {
+    const output = createOutputCanvas()
+    avatar.renderTo(output.getContext('2d'))
+    return output
+  }
+
+  const toBlob = (source) => new Promise((resolve) => source.toBlob(resolve, 'image/png'))
 
   const downloadBlob = (blob, filename) => {
     const link = document.createElement('a')
@@ -606,35 +608,18 @@ const sketch = async (p) => {
     undo.capture()
   })
   bus.on('cropAvatar', () => {
-    if (avatar.image) {
-      avatar.image.remove()
-    }
-    avatar.image = p.createImg(appStore.avatarImage, 'Avatar Image')
-    avatar.image.hide()
-    avatar.image.elt.onload = () => {
-      avatar.set()
-      avatar.draw()
-      requestRedraw()
-    }
+    avatar.load(appStore.avatarImage)
   })
   bus.on('removeAvatar', () => {
-    if (avatar.image) {
-      avatar.image.remove()
-      avatar.image = null
-      avatar.layer.clear()
-    }
-    avatar.draw()
-    requestRedraw()
+    avatar.remove()
   })
   bus.on('setAvatarBorderSize', () => {
     avatar.borderSize = appStore.avatarBorderSize
-    avatar.draw()
-    requestRedraw()
+    previewAvatar(true)
   })
   bus.on('setAvatarSize', () => {
     avatar.size = appStore.avatarSize / 100
-    avatar.draw()
-    requestRedraw()
+    previewAvatar(false)
   })
   bus.on('setBgColor', () => {
     drawBg()
@@ -643,20 +628,22 @@ const sketch = async (p) => {
   bus.on('setName', () => {
     drawText()
   })
-  bus.on('download', () => {
-    composeLayers().toBlob((blob) => downloadBlob(blob, 'result.png'), 'image/png')
+  bus.on('download', async () => {
+    downloadBlob(await toBlob(composeLayers()), 'result.png')
   })
-  bus.on('downloadLayer', () => {
+  bus.on('downloadLayer', async () => {
     const zip = new JSZip()
-    zip.file('bg.png', layers.bg.canvas.toDataURL('image/png').split(',')[1], { base64: true })
-    zip.file('draw.png', layers.draw.canvas.toDataURL('image/png').split(',')[1], { base64: true })
-    zip.file('avatar.png', layers.avatar.canvas.toDataURL('image/png').split(',')[1], {
-      base64: true,
-    })
-    zip.file('text.png', layers.text.canvas.toDataURL('image/png').split(',')[1], { base64: true })
-    zip.generateAsync({ type: 'blob' }).then((content) => {
-      downloadBlob(content, 'layers.zip')
-    })
+    const [bg, draw, avatarLayer, text] = await Promise.all([
+      toBlob(canvas.elt),
+      toBlob(layers.draw.elt),
+      toBlob(renderAvatarLayer()),
+      toBlob(layers.text.elt),
+    ])
+    zip.file('bg.png', bg)
+    zip.file('draw.png', draw)
+    zip.file('avatar.png', avatarLayer)
+    zip.file('text.png', text)
+    downloadBlob(await zip.generateAsync({ type: 'blob' }), 'layers.zip')
   })
 }
 
@@ -679,6 +666,7 @@ onMounted(async () => {
 .canvas-stack
   position: relative;
   flex: none;
+  overflow: hidden;
   // 讓 mix-blend-mode 只和容器內的圖層混合
   isolation: isolate;
   touch-action: none;
@@ -689,9 +677,16 @@ onMounted(async () => {
     display: block;
     touch-action: none;
   // 上層只負責顯示，事件交給最底層的主畫布
+  :deep(.layer-avatar),
   :deep(.layer-draw),
   :deep(.layer-text)
     pointer-events: none;
+  // 頭像依 transform 定位，尺寸由 Avatar 設定
+  :deep(.layer-avatar)
+    inset: auto;
+    left: 0;
+    top: 0;
+    will-change: transform;
   :deep(.layer-draw)
     mix-blend-mode: lighten;
 </style>
