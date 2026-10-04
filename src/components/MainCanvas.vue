@@ -10,6 +10,7 @@ import { useToolsStore } from 'src/stores/tools'
 import { useElementSize } from '@vueuse/core'
 import Undo from 'src/class/undo'
 import Avatar from 'src/class/avatar'
+import Brush from 'src/class/brush'
 
 // *********** Constants ***********
 const FONT_URL = new URL('src/assets/fonts/SedgwickAveDisplay-Regular.ttf', import.meta.url).href
@@ -29,8 +30,10 @@ const CANVAS_SIZE = {
 const MAX_UNDO = 20
 // 筆畫取樣點的最小間距（畫布像素），過濾掉高頻觸控產生的過密點
 const MIN_STROKE_DISTANCE = 1.5
-// 復原範圍額外保留的邊界，涵蓋 p5.brush 筆觸的隨機抖動
-const STROKE_PADDING = 8
+// 復原範圍額外保留的邊界，涵蓋抗鋸齒的半透明像素
+const STROKE_PADDING = 2
+// 筆刷粗細設定值 → 筆刷直徑（畫布像素）
+const BRUSH_SIZE_RATIO = 0.6
 // 名字最大字級
 const NAME_FONT_SIZE_MAX = 300
 // 調整頭像時，預覽用的描邊取樣數
@@ -94,15 +97,13 @@ watch(
 // *********** Canvas & p5 ***********
 let p5Instance = null
 let undo = null
-// p5.brush 模組，與 p5 一起延後載入
-let brush = null
 
 const sketch = (p) => {
   // 圖層
   // 每個圖層都是獨立的 canvas，直接疊在 DOM 上由瀏覽器合成：
   // 主畫布（背景）→ 頭像 → 繪圖（mix-blend-mode: lighten）→ 文字
   const layers = {
-    // 繪圖（WebGL）
+    // 繪圖
     draw: null,
     // 文字
     text: null,
@@ -119,8 +120,8 @@ const sketch = (p) => {
   let imgDefaultDraw = null
   // 頭像物件
   let avatar = null
-  // 下一幀要存進復原紀錄的範圍
-  let pendingCapture = null
+  // 繪圖筆刷
+  let brush = null
   // 頭像完整品質重建的計時器
   let avatarCommitTimer = null
   // 滑鼠是否在畫布內
@@ -128,24 +129,10 @@ const sketch = (p) => {
   // 目前的筆畫
   const stroke = {
     active: false,
-    ended: false,
     pointerId: null,
-    tool: null,
     rect: null,
-    // 上一個已繪製的點
+    // 上一個加入的點
     last: null,
-    // 尚未繪製的點
-    queue: [],
-    // 已繪製範圍（WebGL 座標）
-    bounds: null,
-    // 這一筆用過的最大筆刷粗細
-    maxWeight: 0,
-  }
-  // 中心點座標
-  // WebGL 的 0, 0 在畫布中間
-  const center = {
-    x: CANVAS_SIZE.WIDTH / 2,
-    y: CANVAS_SIZE.HEIGHT / 2,
   }
 
   // 預先載入
@@ -170,8 +157,10 @@ const sketch = (p) => {
     // 建立 canvas
     canvas = p.createCanvas(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
     // 限制像素密度
-    // 手機的像素密度過高可能會超出 WebGL 尺寸限制並影響效能
+    // 手機的像素密度過高會讓畫布尺寸過大並影響效能
     p.pixelDensity(1)
+    // 所有圖層都在事件發生時才更新，不需要繪製循環
+    p.noLoop()
     mountLayer(canvas, 'layer-base')
 
     // 偵測滑鼠是否在畫布內
@@ -196,15 +185,14 @@ const sketch = (p) => {
 
     // *********** 繪圖圖層 ***********
     // 建立繪圖圖層
-    layers.draw = p.createGraphics(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT, p.WEBGL)
+    layers.draw = p.createGraphics(CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
     layers.draw.background(0)
-    layers.draw.image(imgDefaultDraw, -center.x, -center.y, CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
+    layers.draw.image(imgDefaultDraw, 0, 0, CANVAS_SIZE.WIDTH, CANVAS_SIZE.HEIGHT)
     // 初始化繪圖筆刷
-    brush.instance(p)
-    brush.load(layers.draw)
+    brush = new Brush(layers.draw.drawingContext)
     mountLayer(layers.draw, 'layer-draw')
     // 初始化復原功能
-    undo = new Undo(MAX_UNDO, layers.draw, center, p)
+    undo = new Undo(MAX_UNDO, layers.draw.elt)
 
     // *********** 文字圖層 ***********
     // 建立文字圖層
@@ -218,105 +206,27 @@ const sketch = (p) => {
     drawText()
   }
 
-  // 開始繪製循環
-  // 注意 p.loop() 會同步執行一次 draw()，呼叫前要先設定好狀態
-  const startLoop = () => {
-    if (!p.isLooping()) {
-      p.loop()
-    }
-  }
-
-  // 繪製筆刷
-  const drawStroke = () => {
-    if (stroke.queue.length === 0) return
-
-    const weight = (stroke.tool === 'pen' ? appStore.penSize : appStore.eraserSize) * 2
-    stroke.maxWeight = Math.max(stroke.maxWeight, weight)
-
-    brush.pick('rotring')
-    brush.strokeWeight(weight)
-    brush.stroke(stroke.tool === 'pen' ? 'white' : 'black')
-
-    for (const point of stroke.queue) {
-      const from = stroke.last ?? point
-      brush.line(point.x, point.y, from.x, from.y)
-      stroke.last = point
-
-      const b = stroke.bounds
-      if (b) {
-        b.minX = Math.min(b.minX, point.x)
-        b.minY = Math.min(b.minY, point.y)
-        b.maxX = Math.max(b.maxX, point.x)
-        b.maxY = Math.max(b.maxY, point.y)
-      } else {
-        stroke.bounds = { minX: point.x, minY: point.y, maxX: point.x, maxY: point.y }
-      }
-    }
-    stroke.queue.length = 0
-  }
-
-  // 這一筆影響的範圍（畫布座標）
-  const getStrokeRect = () => {
-    const b = stroke.bounds
-    if (!b) return null
-    const pad = stroke.maxWeight + STROKE_PADDING
-    return {
-      x: b.minX + center.x - pad,
-      y: b.minY + center.y - pad,
-      w: b.maxX - b.minX + pad * 2,
-      h: b.maxY - b.minY + pad * 2,
-    }
-  }
-
-  // draw() 只負責筆刷，其他圖層都是事件發生時才更新
-  p.draw = () => {
-    // 上一幀的筆畫已經由 p5.brush 寫入圖層，這時才存進復原紀錄
-    if (pendingCapture) {
-      undo.capture(pendingCapture)
-      pendingCapture = null
-    }
-
-    drawStroke()
-    if (stroke.ended) {
-      stroke.ended = false
-      pendingCapture = getStrokeRect()
-    }
-
-    // 沒有進行中的筆畫時暫停繪製循環
-    if (!stroke.active && !pendingCapture) {
-      p.noLoop()
-    }
-  }
-
   // *********** 繪圖處理 ***********
-  // 轉換成繪圖圖層座標（WebGL 中心為原點）
+  // 筆畫直接在 pointer 事件中畫到繪圖圖層，不經過 p5 的繪製循環
   const toCanvasPoint = (e) => ({
-    x: ((e.clientX - stroke.rect.left) * CANVAS_SIZE.WIDTH) / stroke.rect.width - center.x,
-    y: ((e.clientY - stroke.rect.top) * CANVAS_SIZE.HEIGHT) / stroke.rect.height - center.y,
+    x: ((e.clientX - stroke.rect.left) * CANVAS_SIZE.WIDTH) / stroke.rect.width,
+    y: ((e.clientY - stroke.rect.top) * CANVAS_SIZE.HEIGHT) / stroke.rect.height,
   })
-
-  const queuePoint = (e) => {
-    const point = toCanvasPoint(e)
-    const prev = stroke.queue.at(-1) ?? stroke.last
-    if (prev && Math.hypot(point.x - prev.x, point.y - prev.y) < MIN_STROKE_DISTANCE) return
-    stroke.queue.push(point)
-  }
 
   const onPointerDown = (e) => {
     if (!e.isPrimary || e.button !== 0) return
     if (appStore.tool !== 'pen' && appStore.tool !== 'eraser') return
 
     stroke.active = true
-    stroke.ended = false
     stroke.pointerId = e.pointerId
-    stroke.tool = appStore.tool
     // 筆畫過程中版面不會變動，只取一次
     stroke.rect = canvas.elt.getBoundingClientRect()
-    stroke.last = null
-    stroke.bounds = null
-    stroke.maxWeight = 0
-    stroke.queue.push(toCanvasPoint(e))
-    startLoop()
+    stroke.last = toCanvasPoint(e)
+
+    const isPen = appStore.tool === 'pen'
+    const size = isPen ? appStore.penSize : appStore.eraserSize
+    brush.begin(stroke.last.x, stroke.last.y, size * BRUSH_SIZE_RATIO, isPen ? 'white' : 'black')
+
     // 手指移出畫布也能繼續追蹤這一筆
     try {
       canvas.elt.setPointerCapture(e.pointerId)
@@ -327,18 +237,34 @@ const sketch = (p) => {
 
   const onPointerMove = (e) => {
     if (!stroke.active || e.pointerId !== stroke.pointerId) return
+
+    // 取得兩次事件之間所有的觸控點，過濾掉過密的點
     const events = e.getCoalescedEvents?.() ?? []
+    const points = []
     for (const event of events.length > 0 ? events : [e]) {
-      queuePoint(event)
+      const point = toCanvasPoint(event)
+      const { x, y } = stroke.last
+      if (Math.hypot(point.x - x, point.y - y) < MIN_STROKE_DISTANCE) continue
+      points.push(point)
+      stroke.last = point
     }
+    brush.lineTo(points)
   }
 
   const onPointerUp = (e) => {
     if (!stroke.active || e.pointerId !== stroke.pointerId) return
     stroke.active = false
-    stroke.ended = true
     stroke.pointerId = null
-    startLoop()
+
+    const b = brush.end()
+    if (b) {
+      undo.capture({
+        x: b.minX - STROKE_PADDING,
+        y: b.minY - STROKE_PADDING,
+        w: b.maxX - b.minX + STROKE_PADDING * 2,
+        h: b.maxY - b.minY + STROKE_PADDING * 2,
+      })
+    }
   }
 
   // *********** 頭像處理 ***********
@@ -648,9 +574,8 @@ const sketch = (p) => {
 }
 
 onMounted(async () => {
-  // p5 與 p5.brush 體積較大，延後載入讓介面先顯示
-  const [{ default: P5 }, brushModule] = await Promise.all([import('p5'), import('p5.brush')])
-  brush = brushModule
+  // p5 體積較大，延後載入讓介面先顯示
+  const { default: P5 } = await import('p5')
   await nextTick()
   P5.disableFriendlyErrors = true
   p5Instance = new P5(sketch)

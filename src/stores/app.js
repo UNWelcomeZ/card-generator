@@ -4,7 +4,7 @@ import { ref } from 'vue'
 export const useAppStore = defineStore('app', () => {
   const tool = ref('pen')
   const bgColor = ref('#ff0000')
-  const penSize = ref(50)
+  const penSize = ref(18)
   const eraserSize = ref(50)
   const avatarImage = ref(new URL('src/assets/images/default-avatar.png', import.meta.url).href)
   const avatarBorderSize = ref(20)
